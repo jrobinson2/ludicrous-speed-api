@@ -2,19 +2,42 @@
 
 > "Light speed is too slow. We have to go straight to... **Ludicrous Speed.**"
 
-**Ludicrous Speed** is a high-performance API boilerplate built for the modern edge. By combining **Hono’s** ultrafast routing, **Drizzle’s** type-safe ORM, and **Neon’s** serverless Postgres, we achieve latencies that shouldn't even be legal.
+**Ludicrous Speed** is a high-performance, **runtime-agnostic** API boilerplate built for the modern edge. While optimized for **Bun**, this architecture is designed to be a "Universal Vessel"—leveraging **Hono** for lightweight routing, **Drizzle ORM** for type-safe database interactions, and **Neon** for scalable, serverless PostgreSQL.
 
 ---
 
-### 📊 Performance Benchmarks (Node.js 25 Edition)
+### 🏗️ Architectural Overview
 
-*Optimized for reliability and industry-standard deployments.*
+Ludicrous Speed is built on the principle of **"Separation of Concerns at Warp Velocity."** Every layer is decoupled to ensure the fastest possible execution and maximum developer ergonomics.
+
+
+* **The Engine (Runtime):** **Bun**. Built for speed. This boilerplate leverages the ultra-fast Bun HTTP server and native SQLite/File-system APIs for maximum performance.
+* **The Navigator (Framework):** **Hono**. A web-standard framework that maintains sub-millisecond routing overhead across any environment.
+* **The Fuel Tank (Database):** **Neon**. Serverless PostgreSQL utilizing the HTTP driver to eliminate TCP handshake latency in serverless/edge environments.
+* **The Hull (ORM):** **Drizzle**. A "TypeScript-first" SQL wrapper that provides full type safety with zero runtime bloat.
+* **The Shields (Validation):** **Zod**. End-to-end validation for Environment Variables, API Request payloads, and External API responses.
+
+---
+
+### 🌍 Runtime Agnostic by Design
+
+The "Schwartz" of Ludicrous Speed is its reliance on **Web Standard APIs** (`fetch`, `Request`, `Response`) rather than runtime-specific globals.
+
+* **Zero Lock-in:** Move from a Bun-based Docker container to Cloudflare Workers or a standard Node.js VPS in minutes.
+* **Universal Entry:** The entry point detects if `Bun` is present; if not, it gracefully engages the Hono Node.js adapter.
+* **Edge-Ready:** Every dependency in this stack is compatible with "The Edge," avoiding heavy Node-specific APIs that break in restricted environments.
+* **Future-Proof:** Use the Schwartz to stay portable. By coding to Web Standards, your business logic remains intact even as the JavaScript runtime landscape evolves.
+
+---
+
+### 📊 Performance Benchmarks (Bun Edition)
 
 | Velocity Level | Latency | Status |
 | --- | --- | --- |
-| Light Speed | > 200ms | **Too slow!** |
-| Ridiculous Speed | 100ms - 200ms | **Stop Being a Chicken!** |
-| **Ludicrous Speed** | **< 80ms** | **GO!!!** |
+| Light Speed | > 150ms | **Too slow!** |
+| Ridiculous Speed | 100ms - 150ms | **Stop Being a Chicken!** |
+| Ludicrous Speed | 20ms - 100ms | **GO!!!** |
+| **Plaid** | **< 20ms** | **They've Gone to Plaid!** |
 
 ---
 
@@ -23,118 +46,190 @@
 ```text
 src/
 ├── db/
-│   ├── index.ts      <-- Drizzle client & Neon HTTP Connection
+│   ├── index.ts      <-- Drizzle client factory
 │   └── schema.ts     <-- Database table definitions
 ├── lib/
-│   └── errors.ts     <-- Domain Error definitions
+│   ├── api.ts        <-- High-performance Native Fetch Wrapper
+│   ├── env.ts        <-- Zod Env Schema & Type Definitions
+│   ├── errors.ts     <-- Domain Error definitions
+│   ├── grace.ts      <-- Graceful shutdown utility
+│   └── logger.ts     <-- Centralized pino logging factory
 ├── middleware/
+│   ├── config.ts     <-- Global Env Validation Middleware
+│   ├── exception.ts  <-- Global Hono Error Handler
 │   └── auth.ts       <-- Custom logic (API Keys, JWT, etc.)
 ├── services/
 │   └── user.ts       <-- Business Logic (Drizzle Queries)
 ├── routes/
 │   └── user.ts       <-- Controllers (HTTP Request/Response)
 ├── app.ts            <-- App setup & Error Handling
-└── index.ts          <-- Server entry & Graceful shutdown
+└── index.ts          <-- Server entry (Bun specific)
+
 
 ```
 
 ---
 
-## 1. The Database Layer (`src/db/index.ts`)
+## 1. Environment & Types (`src/lib/env.ts`)
+
+```typescript
+import { z } from 'zod';
+import { getLogger } from './logger';
+
+export const envSchema = z.object({
+  DATABASE_URL: z.string().url(),
+  API_KEY: z.string().min(1),
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  PORT: z.coerce.number().default(3000),
+});
+
+export type Bindings = z.infer<typeof envSchema>;
+
+export type Variables = {
+  logger: ReturnType<typeof getLogger>;
+};
+
+
+```
+
+---
+
+## 2. Smart Logger Factory (`src/lib/logger.ts`)
+
+```typescript
+import pino from 'pino';
+
+export const getLogger = (env: string, isInternal = false) => pino({
+  level: env === 'development' ? 'debug' : 'info',
+  transport:
+    env === 'development'
+      ? {
+          target: 'pino-pretty',
+          options: {
+            sync: isInternal, // Forced sync for lifecycle logs to prevent lost output
+            colorize: true,
+            levelFirst: true,
+            translateTime: 'SYS:standard',
+            ignore: 'pid,hostname',
+            customColors: 'info:cyan,warn:magenta,error:red,fatal:bgRed,debug:white',
+            useOnlyCustomProps: false
+          }
+        }
+      : undefined
+});
+
+
+```
+
+---
+
+## 3. Core Middleware
+
+### Config & Logger (`src/middleware/config.ts`)
+
+```typescript
+import { createMiddleware } from 'hono/factory';
+import { envSchema, Bindings, Variables } from '../lib/env';
+import { getLogger } from '../lib/logger';
+import { HTTPException } from 'hono/http-exception';
+
+export const configMiddleware = createMiddleware<{ Bindings: Bindings; Variables: Variables }>(
+  async (c, next) => {
+    const result = envSchema.safeParse(c.env);
+    
+    if (!result.success) {
+      console.error('❌ Invalid Environment Variables:', result.error.format());
+      throw new HTTPException(500, { message: 'Server Configuration Error' });
+    }
+
+    // Inject logger into request context
+    c.set('logger', getLogger(result.data.NODE_ENV));
+    
+    await next();
+  }
+);
+
+
+```
+
+---
+
+## 4. The Database Layer (`src/db/index.ts`)
 
 ```typescript
 import { neon } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-http';
 import * as schema from './schema';
 
-const sql = neon(process.env.DATABASE_URL!);
-export const db = drizzle({ client: sql, schema });
-
-```
-
----
-
-## 2. Domain Errors (`src/lib/errors.ts`)
-
-```typescript
-export class NotFoundError extends Error {
-  constructor(public message: string) {
-    super(message);
-    this.name = 'NotFoundError';
-  }
-}
-
-export class ConflictError extends Error {
-  constructor(public message: string) {
-    super(message);
-    this.name = 'ConflictError';
-  }
-}
-
-```
-
----
-
-## 3. Custom Middleware (`src/middleware/auth.ts`)
-
-```typescript
-import { createMiddleware } from 'hono/factory';
-import { HTTPException } from 'hono/http-exception';
-
-export const authMiddleware = createMiddleware(async (c, next) => {
-  const apiKey = c.req.header('X-API-KEY');
-
-  if (!apiKey || apiKey !== process.env.API_KEY) {
-    throw new HTTPException(401, { message: 'Unauthorized' });
-  }
-
-  await next();
-});
-
-```
-
----
-
-## 4. The Service Layer (`src/services/user.ts`)
-
-```typescript
-import { db } from '../db';
-import { users } from '../db/schema';
-import { eq } from 'drizzle-orm';
-import { NotFoundError } from '../lib/errors';
-
-export const UserService = {
-  async getAll() {
-    return await db.select().from(users);
-  },
-  
-  async getById(id: number) {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    if (!user) {
-      throw new NotFoundError(`User with ID ${id} not found`);
-    }
-    return user;
-  },
-
-  async create(data: { name: string; email: string }) {
-    const [newUser] = await db.insert(users).values(data).returning();
-    return newUser;
-  }
+export const getDb = (databaseUrl: string) => {
+  const sql = neon(databaseUrl);
+  return drizzle({ client: sql, schema });
 };
 
+export type Database = ReturnType<typeof getDb>;
+
+
 ```
 
 ---
 
-## 5. The Route Layer (`src/routes/user.ts`)
+## 5. Service Layer (`src/services/user.ts`)
+
+```typescript
+import { eq } from 'drizzle-orm';
+import { z } from 'zod';
+import * as api from '../lib/api.js';
+import { NotFoundError } from '../lib/errors.js';
+import { users } from '../db/schema.js';
+import type { Database } from '../db/index.js';
+
+const GitHubUserSchema = z.object({
+  login: z.string(),
+  id: z.number(),
+  avatar_url: z.string().url(),
+});
+
+export type GitHubUser = z.infer<typeof GitHubUserSchema>;
+
+export async function getAllUsers(db: Database) {
+  return await db.select().from(users);
+}
+
+export async function getUserById(db: Database, id: number) {
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, id),
+  });
+
+  if (!user) throw new NotFoundError(`User with ID ${id} not found`);
+  return user;
+}
+
+export async function createUser(db: Database, data: { name: string; email: string }) {
+  const [newUser] = await db.insert(users).values(data).returning();
+  return newUser;
+}
+
+export async function getGitHubProfile(username: string) {
+  return await api.get<GitHubUser>(`https://api.github.com/users/${username}`, {
+    schema: GitHubUserSchema
+  });
+}
+
+```
+
+---
+
+## 6. Route Layer (`src/routes/user.ts`)
 
 ```typescript
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { UserService } from '../services/user';
+import * as UserService from '../services/user.js';
+import { getDb } from '../db/index.js';
+import type { Bindings, Variables } from '../lib/env.js';
 
-const userRoutes = new Hono();
+const userRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 const userSchema = z.object({
   name: z.string().min(2),
@@ -142,20 +237,23 @@ const userSchema = z.object({
 });
 
 userRoutes.get('/', async (c) => {
-  const data = await UserService.getAll();
-  return c.json(data);
+  const db = getDb(c.env.DATABASE_URL);
+  const data = await UserService.getAllUsers(db);
+  return c.json({ success: true, data });
 });
 
 userRoutes.get('/:id', async (c) => {
   const id = Number(c.req.param('id'));
-  const user = await UserService.getById(id); 
-  return c.json(user);
+  const db = getDb(c.env.DATABASE_URL);
+  const user = await UserService.getUserById(db, id);
+  return c.json({ success: true, data: user });
 });
 
 userRoutes.post('/', zValidator('json', userSchema), async (c) => {
   const validated = c.req.valid('json');
-  const newUser = await UserService.create(validated);
-  return c.json(newUser, 201);
+  const db = getDb(c.env.DATABASE_URL);
+  const newUser = await UserService.createUser(db, validated);
+  return c.json({ success: true, data: newUser }, 201);
 });
 
 export default userRoutes;
@@ -164,33 +262,25 @@ export default userRoutes;
 
 ---
 
-## 6. The App Logic (`src/app.ts`)
+## 7. The App Core (`src/app.ts`)
 
 ```typescript
 import { Hono } from 'hono';
-import { logger } from 'hono/logger';
+import { logger as honoLogger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
-import { HTTPException } from 'hono/http-exception';
-import { NotFoundError, ConflictError } from './lib/errors';
-import { authMiddleware } from './middleware/auth';
+import { Bindings, Variables } from './lib/env';
+import { configMiddleware } from './middleware/config';
+import { globalErrorHandler } from './middleware/exception';
 import userRoutes from './routes/user';
 
-const app = new Hono();
+const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-app.use('*', logger());
+app.use('*', honoLogger());
 app.use('*', secureHeaders());
+app.use('*', configMiddleware);
 
-// Global Error Handler
-app.onError((err, c) => {
-  if (err instanceof HTTPException) return err.getResponse();
-  if (err instanceof NotFoundError) return c.json({ error: err.message }, 404);
-  if (err instanceof ConflictError) return c.json({ error: err.message }, 409);
+app.onError(globalErrorHandler);
 
-  console.error(`[Unhandled Error]: ${err.stack}`);
-  return c.json({ error: 'Internal Server Error' }, 500);
-});
-
-app.use('/api/*', authMiddleware);
 app.route('/api/users', userRoutes);
 
 export default app;
@@ -199,26 +289,31 @@ export default app;
 
 ---
 
-## 7. The Server Runner (`src/index.ts`)
+## 8. The Bun Host (`src/index.ts`)
 
 ```typescript
-import { serve } from '@hono/node-server';
-import closeWithGrace from 'close-with-grace';
-import app from './app';
+import app from './app.js';
+import { closeWithGrace } from './lib/grace.js';
+import { getLogger } from './lib/logger.js';
 
-const server = serve({
+const logger = getLogger(process.env.NODE_ENV || 'development', true);
+
+const server = Bun.serve({
   fetch: app.fetch,
-  port: 3000
-}, (info) => {
-  console.log(`🚀 Ludicrous Speed active at http://localhost:${info.port}`);
+  port: process.env.PORT || 3000
 });
 
-closeWithGrace({ delay: 5000 }, async ({ signal, err }) => {
-  if (err) console.error(err);
-  server.close();
-  process.exit(err ? 1 : 0);
+logger.info(`
+🚀 LUDICROUS SPEED: ACTIVE
+--------------------------
+Runtime: Bun ${Bun.version}
+URL: http://localhost:${server.port}
+--------------------------
+`);
+
+closeWithGrace(logger, { delay: 5000 }, async () => {
+  server.stop(false);
+  logger.info('Airlock sealed. Draining remaining connections...');
 });
 
 ```
-
----
