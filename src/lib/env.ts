@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Database } from '../db/index.js';
 import type { getLogger } from './logger.js';
 
 export const envSchema = z.object({
@@ -14,4 +15,5 @@ export type Bindings = z.infer<typeof envSchema>;
 
 export type Variables = {
   logger: ReturnType<typeof getLogger>;
+  db: Database;
 };

@@ -1,5 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import { HTTPException } from 'hono/http-exception';
+import { getDb } from '../db/index.js';
 import { type Bindings, envSchema, type Variables } from '../lib/env.js';
 import { getLogger } from '../lib/logger.js';
 
@@ -16,6 +17,7 @@ export const configMiddleware = createMiddleware<{
 
   // Inject logger into request context
   c.set('logger', getLogger(result.data.NODE_ENV));
+  c.set('db', getDb(result.data.DATABASE_URL)); // Injected once per request
 
   await next();
 });

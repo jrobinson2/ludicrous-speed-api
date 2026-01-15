@@ -74,19 +74,23 @@ src/
 
 ```typescript
 import { z } from 'zod';
-import { getLogger } from './logger';
+import type { Database } from '../db/index.js';
+import type { getLogger } from './logger.js';
 
 export const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   API_KEY: z.string().min(1),
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.coerce.number().default(3000),
+  NODE_ENV: z
+    .enum(['development', 'production', 'test'])
+    .default('development'),
+  PORT: z.coerce.number().default(3000)
 });
 
 export type Bindings = z.infer<typeof envSchema>;
 
 export type Variables = {
   logger: ReturnType<typeof getLogger>;
+  db: Database;
 };
 
 
@@ -129,25 +133,28 @@ export const getLogger = (env: string, isInternal = false) => pino({
 
 ```typescript
 import { createMiddleware } from 'hono/factory';
-import { envSchema, Bindings, Variables } from '../lib/env';
-import { getLogger } from '../lib/logger';
 import { HTTPException } from 'hono/http-exception';
+import { getDb } from '../db/index.js';
+import { type Bindings, envSchema, type Variables } from '../lib/env.js';
+import { getLogger } from '../lib/logger.js';
 
-export const configMiddleware = createMiddleware<{ Bindings: Bindings; Variables: Variables }>(
-  async (c, next) => {
-    const result = envSchema.safeParse(c.env);
-    
-    if (!result.success) {
-      console.error('❌ Invalid Environment Variables:', result.error.format());
-      throw new HTTPException(500, { message: 'Server Configuration Error' });
-    }
+export const configMiddleware = createMiddleware<{
+  Bindings: Bindings;
+  Variables: Variables;
+}>(async (c, next) => {
+  const result = envSchema.safeParse(c.env);
 
-    // Inject logger into request context
-    c.set('logger', getLogger(result.data.NODE_ENV));
-    
-    await next();
+  if (!result.success) {
+    console.error('❌ Invalid Environment Variables:', result.error.format());
+    throw new HTTPException(500, { message: 'Server Configuration Error' });
   }
-);
+
+  // Inject logger into request context
+  c.set('logger', getLogger(result.data.NODE_ENV));
+  c.set('db', getDb(result.data.DATABASE_URL)); // Injected once per request
+
+  await next();
+});
 
 
 ```
@@ -161,9 +168,14 @@ import { neon } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-http';
 import * as schema from './schema';
 
-export const getDb = (databaseUrl: string) => {
-  const sql = neon(databaseUrl);
-  return drizzle({ client: sql, schema });
+let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
+
+export const getDb = (url: string) => {
+  if (db) return db;
+
+  const client = neon(url);
+  db = drizzle(client, { schema });
+  return db;
 };
 
 export type Database = ReturnType<typeof getDb>;
@@ -176,44 +188,64 @@ export type Database = ReturnType<typeof getDb>;
 ## 5. Service Layer (`src/services/user.ts`)
 
 ```typescript
-import { eq } from 'drizzle-orm';
+import { zValidator } from '@hono/zod-validator';
+import { Hono } from 'hono';
 import { z } from 'zod';
-import * as api from '../lib/api.js';
-import { NotFoundError } from '../lib/errors.js';
-import { users } from '../db/schema.js';
-import type { Database } from '../db/index.js';
+import type { Bindings, Variables } from '../lib/env.js';
+import { reply } from '../lib/response.js'; // Our new Ludicrous Speed helper
+import * as UserService from '../services/user.js';
 
-const GitHubUserSchema = z.object({
-  login: z.string(),
-  id: z.number(),
-  avatar_url: z.string().url(),
+const userRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+
+const userSchema = z.object({
+  name: z.string().min(2),
+  email: z.string().email()
 });
 
-export type GitHubUser = z.infer<typeof GitHubUserSchema>;
+// --- Routes ---
 
-export async function getAllUsers(db: Database) {
-  return await db.select().from(users);
-}
+userRoutes.get('/', async (c) => {
+  const logger = c.get('logger');
+  logger.info('🛰️ Fetching all users at Ludicrous Speed');
 
-export async function getUserById(db: Database, id: number) {
-  const user = await db.query.users.findFirst({
-    where: eq(users.id, id),
-  });
+  const db = c.get('db');
+  const data = await UserService.getAllUsers(db);
 
-  if (!user) throw new NotFoundError(`User with ID ${id} not found`);
-  return user;
-}
+  return reply.ok(c, data);
+});
 
-export async function createUser(db: Database, data: { name: string; email: string }) {
-  const [newUser] = await db.insert(users).values(data).returning();
-  return newUser;
-}
+userRoutes.get('/:id', async (c) => {
+  const id = Number(c.req.param('id'));
+  const db = c.get('db');
 
-export async function getGitHubProfile(username: string) {
-  return await api.get<GitHubUser>(`https://api.github.com/users/${username}`, {
-    schema: GitHubUserSchema
-  });
-}
+  // Service throws NotFoundError if missing -> Global Handler catches it
+  const user = await UserService.getUserById(db, id);
+
+  return reply.ok(c, user);
+});
+
+userRoutes.post('/', zValidator('json', userSchema), async (c) => {
+  const logger = c.get('logger');
+  const validated = c.req.valid('json');
+  const db = c.get('db');
+
+  const newUser = await UserService.createUser(db, validated);
+
+  logger.info({ msg: '👤 New user created', userId: newUser.id });
+
+  // Using 201 Created for a successful POST
+  return reply.ok(c, newUser, 201);
+});
+
+userRoutes.get('/github/:username', async (c) => {
+  const username = c.req.param('username');
+  const profile = await UserService.getGitHubProfile(username);
+
+  return reply.ok(c, profile);
+});
+
+export default userRoutes;
+
 
 ```
 
@@ -222,41 +254,65 @@ export async function getGitHubProfile(username: string) {
 ## 6. Route Layer (`src/routes/user.ts`)
 
 ```typescript
-import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import { Hono } from 'hono';
 import { z } from 'zod';
-import * as UserService from '../services/user.js';
-import { getDb } from '../db/index.js';
 import type { Bindings, Variables } from '../lib/env.js';
+import * as UserService from '../services/user.js';
 
+// 1. Pass types to Hono to enable autocomplete for c.get('logger') and c.env
 const userRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 const userSchema = z.object({
   name: z.string().min(2),
-  email: z.string().email(),
+  email: z.string().email()
 });
 
+// --- Routes ---
+
 userRoutes.get('/', async (c) => {
-  const db = getDb(c.env.DATABASE_URL);
+  const logger = c.get('logger');
+  logger.info('🛰️ Fetching all users at Ludicrous Speed');
+
+  const db = c.get('db');
   const data = await UserService.getAllUsers(db);
+
   return c.json({ success: true, data });
 });
 
 userRoutes.get('/:id', async (c) => {
   const id = Number(c.req.param('id'));
-  const db = getDb(c.env.DATABASE_URL);
+  const db = c.get('db');
+
+  // Note: If user is not found, UserService throws NotFoundError
+  // which is caught by our global exception handler!
   const user = await UserService.getUserById(db, id);
+
   return c.json({ success: true, data: user });
 });
 
 userRoutes.post('/', zValidator('json', userSchema), async (c) => {
+  const logger = c.get('logger');
   const validated = c.req.valid('json');
-  const db = getDb(c.env.DATABASE_URL);
+  const db = c.get('db');
+
   const newUser = await UserService.createUser(db, validated);
+
+  logger.info({ msg: '👤 New user created', userId: newUser.id });
+
   return c.json({ success: true, data: newUser }, 201);
 });
 
+// Example route for the GitHub API service we added
+userRoutes.get('/github/:username', async (c) => {
+  const username = c.req.param('username');
+  const profile = await UserService.getGitHubProfile(username);
+
+  return c.json({ success: true, data: profile });
+});
+
 export default userRoutes;
+
 
 ```
 

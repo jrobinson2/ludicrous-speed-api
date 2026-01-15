@@ -4,38 +4,54 @@ import type { z } from 'zod';
 
 /**
  * Ludicrous Speed Native Fetch Wrapper
- * Leveraging Bun's high-performance native fetch with Named Exports.
  */
 
 type FetchOptions = RequestInit & {
-  params?: Record<string, string | number>;
+  params?: Record<string, string | number | boolean>;
   schema?: z.ZodSchema;
+  timeout?: number;
 };
 
 /**
+ * Type guard to check if an unknown error has a message property
+ */
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+/**
  * Internal response handler
- * Throws Hono HTTPExceptions to be caught by the global error handler.
  */
 async function handleResponse<T>(
   res: Response,
   schema?: z.ZodSchema
 ): Promise<T> {
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({
-      message: res.statusText || 'External API Error'
-    }));
+  const contentType = res.headers.get('content-type');
+  let data: unknown;
 
-    throw new HTTPException(res.status as ContentfulStatusCode, {
-      message: errorData.message || 'Internal Service Request Failed'
-    });
+  if (contentType?.includes('application/json')) {
+    data = await res.json().catch(() => ({ message: 'Failed to parse JSON' }));
+  } else {
+    data = await res.text();
   }
 
-  const data = await res.json();
+  if (!res.ok) {
+    // Narrowing the 'unknown' data for error reporting
+    const message =
+      data && typeof data === 'object' && 'message' in data
+        ? String((data as { message: unknown }).message)
+        : String(data);
+
+    throw new HTTPException(res.status as ContentfulStatusCode, {
+      message: message || `External API Error: ${res.statusText}`
+    });
+  }
 
   if (schema) {
     const result = schema.safeParse(data);
     if (!result.success) {
-      console.error('❌ API Validation Error:', result.error.format());
+      console.error('❌ Upstream Validation Error:', result.error.format());
       throw new HTTPException(502, {
         message: 'Upstream service returned data that failed validation'
       });
@@ -46,65 +62,71 @@ async function handleResponse<T>(
   return data as T;
 }
 
-export async function get<T>(
+/**
+ * Core Request Wrapper
+ */
+async function request<T>(
   url: string,
-  options: FetchOptions = {}
+  method: string,
+  options: FetchOptions = {},
+  body?: unknown
 ): Promise<T> {
-  const targetUrl = options.params
-    ? `${url}?${new URLSearchParams(options.params as any)}`
-    : url;
+  const { timeout = 5000, params, headers, ...fetchInit } = options;
 
-  return fetch(targetUrl, {
-    method: 'GET',
-    ...options
-  }).then((res) => handleResponse<T>(res, options.schema));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  const targetUrl = new URL(url);
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      targetUrl.searchParams.append(key, String(value));
+    }
+  }
+
+  try {
+    const res = await fetch(targetUrl.toString(), {
+      ...fetchInit,
+      method,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...headers
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal
+    });
+
+    clearTimeout(timer);
+    return await handleResponse<T>(res, options.schema);
+  } catch (error: unknown) {
+    clearTimeout(timer);
+
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new HTTPException(504, {
+        message: `Request timeout after ${timeout}ms`
+      });
+    }
+
+    if (error instanceof HTTPException) throw error;
+
+    throw new HTTPException(500, {
+      message: getErrorMessage(error) || 'Fetch request failed'
+    });
+  }
 }
 
-export async function post<T>(
-  url: string,
-  body: any,
-  options: FetchOptions = {}
-): Promise<T> {
-  return fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    body: JSON.stringify(body),
-    ...options
-  }).then((res) => handleResponse<T>(res, options.schema));
-}
+// --- Named Exports ---
 
-export async function put<T>(
-  url: string,
-  body: any,
-  options: FetchOptions = {}
-): Promise<T> {
-  return fetch(url, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    body: JSON.stringify(body),
-    ...options
-  }).then((res) => handleResponse<T>(res, options.schema));
-}
+export const get = <T>(url: string, options?: FetchOptions) =>
+  request<T>(url, 'GET', options);
 
-export async function patch<T>(
-  url: string,
-  body: any,
-  options: FetchOptions = {}
-): Promise<T> {
-  return fetch(url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    body: JSON.stringify(body),
-    ...options
-  }).then((res) => handleResponse<T>(res, options.schema));
-}
+export const post = <T>(url: string, body: unknown, options?: FetchOptions) =>
+  request<T>(url, 'POST', options, body);
 
-export async function del<T>(
-  url: string,
-  options: FetchOptions = {}
-): Promise<T> {
-  return fetch(url, {
-    method: 'DELETE',
-    ...options
-  }).then((res) => handleResponse<T>(res, options.schema));
-}
+export const put = <T>(url: string, body: unknown, options?: FetchOptions) =>
+  request<T>(url, 'PUT', options, body);
+
+export const patch = <T>(url: string, body: unknown, options?: FetchOptions) =>
+  request<T>(url, 'PATCH', options, body);
+
+export const del = <T>(url: string, options?: FetchOptions) =>
+  request<T>(url, 'DELETE', options);
