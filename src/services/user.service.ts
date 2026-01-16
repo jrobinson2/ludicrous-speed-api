@@ -2,13 +2,10 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../db/client.js';
 import { users } from '../db/schema.js';
-import * as api from '../lib/api.js';
+import { api } from '../lib/api.js';
 import { NotFoundError } from '../lib/errors.js';
-import type { Logger } from '../lib/logger.js'; // Added this import
+import type { Logger } from '../lib/logger.js';
 
-/**
- * 🛡️ Validation Schemas for External APIs
- */
 const GitHubUserSchema = z.object({
   login: z.string(),
   id: z.number(),
@@ -45,13 +42,9 @@ export async function createUser(
 
 // --- External API Operations ---
 
-/**
- * We now accept the logger so that api.get can log
- * upstream failures with the correct Request ID.
- */
-export async function getGitHubProfile(username: string, logger?: Logger) {
-  return await api.get<GitHubUser>(`https://api.github.com/users/${username}`, {
-    schema: GitHubUserSchema,
-    logger // <--- Passing the logger down the chain
+export async function getGitHubProfile(username: string, logger: Logger) {
+  return await api(`https://api.github.com/users/${username}`, {
+    schema: GitHubUserSchema, // Automated validation
+    logger
   });
 }

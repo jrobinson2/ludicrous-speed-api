@@ -1,132 +1,96 @@
 import { HTTPException } from 'hono/http-exception';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import {
+  createFetch,
+  type FetchContext,
+  type FetchOptions,
+  type ResponseType
+} from 'ofetch';
 import type { z } from 'zod';
 import type { Logger } from './logger.js';
 
-type FetchOptions = RequestInit & {
-  params?: Record<string, string | number | boolean>;
-  schema?: z.ZodSchema;
-  timeout?: number;
+/**
+ * 🛸 Ludicrous Options
+ * Explicitly setting the ResponseType to 'json' to satisfy strict checking.
+ */
+type LudicrousOptions<T = unknown> = FetchOptions<'json'> & {
   logger?: Logger;
+  schema?: z.Schema<T>;
 };
 
-async function request<T>(
+const $api = createFetch({
+  defaults: {
+    retry: 2,
+    retryDelay: 500,
+    timeout: 5000,
+    responseType: 'json'
+  }
+});
+
+/**
+ * 🛸 The Universal Fetch Instance
+ */
+export const api = async <T = unknown>(
   url: string,
-  method: string,
-  options: FetchOptions = {},
-  body?: unknown
-): Promise<T> {
-  const {
-    timeout = 5000,
-    params,
-    headers,
-    logger,
-    schema,
-    ...fetchInit
-  } = options;
+  options: LudicrousOptions<T> = {}
+): Promise<T> => {
+  const { logger, schema, ...fetchOptions } = options;
 
-  const searchParams = params
-    ? new URLSearchParams(params as Record<string, string>).toString()
-    : '';
-  const targetUrl = searchParams ? `${url}?${searchParams}` : url;
+  // Type-safe fallback
+  const log = (logger ?? console) as unknown as Logger;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
+  const data = await $api<unknown>(url, {
+    ...fetchOptions,
 
-  try {
-    const res = await fetch(targetUrl, {
-      ...fetchInit,
-      method,
-      headers: {
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-        ...headers
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal
-    });
+    // Replace <any, any> with specific FetchContext requirements
+    onResponseError(context: FetchContext<unknown, ResponseType>) {
+      const { request, response } = context;
+      const status = (response?.status ?? 500) as ContentfulStatusCode;
 
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      const errorData = await res.text();
-      logger?.error(
-        { status: res.status, url: targetUrl, errorData },
-        '❌ Upstream Fetch Failed'
+      log.error(
+        { status, url: request, error: response?._data },
+        '❌ External API Failure'
       );
 
-      throw new HTTPException(res.status as ContentfulStatusCode, {
-        message: `External API Error: ${res.statusText}`
+      throw new HTTPException(status, {
+        message: `Upstream Error: ${response?.statusText || status}`
+      });
+    },
+
+    onRequestError(context: FetchContext<unknown, ResponseType>) {
+      const { request, error } = context;
+
+      log.error(
+        {
+          url: request,
+          err: error instanceof Error ? error.message : 'Unknown'
+        },
+        '📡 Network/Connection Error'
+      );
+
+      throw new HTTPException(504, {
+        message: 'Gateway Timeout or Network Failure'
+      });
+    }
+  });
+
+  // --- 🛰️ Validation Step ---
+  if (schema) {
+    const result = schema.safeParse(data);
+
+    if (!result.success) {
+      log.error(
+        { err: result.error.format(), url },
+        '❌ API Response Schema Mismatch'
+      );
+
+      throw new HTTPException(502, {
+        message: 'Bad Gateway: Upstream provided invalid data'
       });
     }
 
-    const data = await res.json();
-
-    if (schema) {
-      const result = schema.safeParse(data);
-      if (!result.success) {
-        logger?.error(
-          { err: result.error.format() },
-          '❌ Upstream Schema Mismatch'
-        );
-        throw new HTTPException(502, { message: 'Bad Gateway: Invalid Data' });
-      }
-      return result.data as T;
-    }
-
-    return data as T;
-  } catch (error: unknown) {
-    clearTimeout(timer);
-
-    if (error instanceof Error) {
-      if (error.name === 'AbortError') {
-        throw new HTTPException(504, { message: 'Gateway Timeout' });
-      }
-      if (error instanceof HTTPException) {
-        throw error;
-      }
-      throw new HTTPException(500, { message: error.message });
-    }
-
-    throw new HTTPException(500, {
-      message: 'An unknown fetch error occurred'
-    });
+    return result.data;
   }
-}
 
-export const get = async <T>(
-  url: string,
-  options?: FetchOptions
-): Promise<T> => {
-  return request<T>(url, 'GET', options);
-};
-
-export const post = async <T>(
-  url: string,
-  body: unknown,
-  options?: FetchOptions
-): Promise<T> => {
-  return request<T>(url, 'POST', options, body);
-};
-
-export const put = async <T>(
-  url: string,
-  body: unknown,
-  options?: FetchOptions
-): Promise<T> => {
-  return request<T>(url, 'PUT', options, body);
-};
-
-export const patch = async <T>(
-  url: string,
-  body: unknown,
-  options?: FetchOptions
-): Promise<T> => {
-  return request<T>(url, 'PATCH', options, body);
-};
-
-export const del = async <T>(
-  url: string,
-  options?: FetchOptions
-): Promise<T> => {
-  return request<T>(url, 'DELETE', options);
+  return data as T;
 };

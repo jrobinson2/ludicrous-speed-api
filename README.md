@@ -46,24 +46,24 @@ The "Schwartz" of Ludicrous Speed is its reliance on **Web Standard APIs** (`fet
 ```text
 src/
 ├── db/
-│   ├── client.ts     <-- Drizzle client factory
-│   └── schema.ts     <-- Database table definitions
+│   ├── client.ts        <-- Drizzle client factory
+│   └── schema.ts        <-- Database table definitions
 ├── lib/
-│   ├── api.ts        <-- High-performance Native Fetch Wrapper
-│   ├── env.ts        <-- Zod Env Schema & Type Definitions
-│   ├── errors.ts     <-- Domain Error definitions
-│   ├── grace.ts      <-- Graceful shutdown utility
-│   └── logger.ts     <-- Centralized pino logging factory
+│   ├── api.ts           <-- High-performance Native Fetch Wrapper
+│   ├── env.ts           <-- Zod Env Schema & Type Definitions
+│   ├── errors.ts        <-- Domain Error definitions
+│   ├── grace.ts         <-- Graceful shutdown utility
+│   └── logger.ts        <-- Centralized pino logging factory
 ├── middleware/
-│   ├── config.ts     <-- Global Env Validation Middleware
-│   ├── exception.ts  <-- Global Hono Error Handler
-│   └── auth.ts       <-- Custom logic (API Keys, JWT, etc.)
+│   ├── config.ts        <-- Global Env Validation Middleware
+│   ├── exception.ts     <-- Global Hono Error Handler
+│   └── auth.ts          <-- Custom logic (API Keys, JWT, etc.)
 ├── services/
-│   └── user.ts       <-- Business Logic (Drizzle Queries)
+│   └── user.service.ts  <-- Business Logic (Drizzle Queries)
 ├── routes/
-│   └── user.ts       <-- Controllers (HTTP Request/Response)
-├── app.ts            <-- App setup & Error Handling
-└── server.ts         <-- Server entry (Bun specific)
+│   └── user.route.ts    <-- Controllers (HTTP Request/Response)
+├── app.ts               <-- App setup & Error Handling
+└── server.ts            <-- Server entry (Bun specific)
 
 
 ```
@@ -236,20 +236,17 @@ export type Database = ReturnType<typeof getDb>;
 
 ---
 
-## 5. Service Layer (`src/services/user.ts`)
+## 5. Service Layer (`src/services/user.service.ts`)
 
 ```typescript
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import type { Database } from '../db/index.js';
+import type { Database } from '../db/client.js';
 import { users } from '../db/schema.js';
-import * as api from '../lib/api.js';
+import { api } from '../lib/api.js';
 import { NotFoundError } from '../lib/errors.js';
-import type { Logger } from '../lib/logger.js'; // Added this import
+import type { Logger } from '../lib/logger.js';
 
-/**
- * 🛡️ Validation Schemas for External APIs
- */
 const GitHubUserSchema = z.object({
   login: z.string(),
   id: z.number(),
@@ -286,9 +283,9 @@ export async function createUser(
 
 // --- External API Operations ---
 
-export async function getGitHubProfile(username: string, logger?: Logger) {
-  return await api.get<GitHubUser>(`https://api.github.com/users/${username}`, {
-    schema: GitHubUserSchema,
+export async function getGitHubProfile(username: string, logger: Logger) {
+  return await api(`https://api.github.com/users/${username}`, {
+    schema: GitHubUserSchema, // Automated validation
     logger
   });
 }
@@ -298,7 +295,7 @@ export async function getGitHubProfile(username: string, logger?: Logger) {
 
 ---
 
-## 6. Route Layer (`src/routes/user.ts`)
+## 6. Route Layer (`src/routes/user.route.ts`)
 
 ```typescript
 import { zValidator } from '@hono/zod-validator';
@@ -306,7 +303,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Bindings, Variables } from '../lib/env.js';
 import { reply } from '../lib/response.js';
-import * as UserService from '../services/user.js';
+import * as UserService from '../services/user.service.js';
 
 const userRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -350,9 +347,9 @@ userRoutes.post('/', zValidator('json', userSchema), async (c) => {
 
 userRoutes.get('/github/:username', async (c) => {
   const username = c.req.param('username');
+  const logger = c.get('logger'); // Traceable child logger from configMiddleware
 
-  const logger = c.get('logger');
-
+  // Pass logger into the service to maintain the trace through the external fetch
   const profile = await UserService.getGitHubProfile(username, logger);
 
   return reply.ok(c, profile);

@@ -65,12 +65,8 @@ export const globalErrorHandler: ErrorHandler<{
   // 6. Critical Failures (500)
   const message = isDev ? err.message : 'Internal Server Error';
 
-  return c.json(
-    {
-      success: false,
-      error: message,
-      ...(isDev && { stack: err.stack })
-    },
-    500
-  );
+  return reply.fail(c, message, 500, {
+    code: 'INTERNAL_SERVER_ERROR',
+    ...(isDev && { stack: err.stack })
+  });
 };

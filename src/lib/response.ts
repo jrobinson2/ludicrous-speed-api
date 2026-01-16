@@ -25,13 +25,13 @@ export const reply = {
     c: Context,
     message: string,
     status: ContentfulStatusCode = 400,
-    extra: Record<string, unknown> = {} // Changed 'any' to 'unknown'
+    extra: Record<string, unknown> = {}
   ) => {
     return c.json(
       {
         success: false,
         error: message,
-        ...extra
+        meta: extra
       },
       status
     );

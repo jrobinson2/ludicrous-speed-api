@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Bindings, Variables } from '../lib/env.js';
 import { reply } from '../lib/response.js';
-import * as UserService from '../services/user.js';
+import * as UserService from '../services/user.service.js';
 
 const userRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -47,11 +47,9 @@ userRoutes.post('/', zValidator('json', userSchema), async (c) => {
 
 userRoutes.get('/github/:username', async (c) => {
   const username = c.req.param('username');
+  const logger = c.get('logger'); // Traceable child logger from configMiddleware
 
-  // 1. Grab the traceable child logger from context
-  const logger = c.get('logger');
-
-  // 2. Pass it into the service
+  // Pass logger into the service to maintain the trace through the external fetch
   const profile = await UserService.getGitHubProfile(username, logger);
 
   return reply.ok(c, profile);
