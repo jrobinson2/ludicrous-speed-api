@@ -1,5 +1,4 @@
 import type { Context } from 'hono';
-// Change 'StatusCode' to 'ContentfulStatusCode'
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
 /**
@@ -22,11 +21,17 @@ export const reply = {
   /**
    * Error: 4xx / 5xx
    */
-  fail: (c: Context, message: string, status: ContentfulStatusCode = 400) => {
+  fail: (
+    c: Context,
+    message: string,
+    status: ContentfulStatusCode = 400,
+    extra: Record<string, unknown> = {} // Changed 'any' to 'unknown'
+  ) => {
     return c.json(
       {
         success: false,
-        error: message
+        error: message,
+        ...extra
       },
       status
     );

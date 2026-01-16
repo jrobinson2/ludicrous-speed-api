@@ -1,23 +1,42 @@
+import { env } from 'hono/adapter';
 import { createMiddleware } from 'hono/factory';
-import { HTTPException } from 'hono/http-exception';
-import { getDb } from '../db/index.js';
-import { type Bindings, envSchema, type Variables } from '../lib/env.js';
+import { getDb } from '../db/client.js';
+import { type Bindings, envSchema } from '../lib/env.js';
 import { getLogger } from '../lib/logger.js';
 
-export const configMiddleware = createMiddleware<{
-  Bindings: Bindings;
-  Variables: Variables;
-}>(async (c, next) => {
-  const result = envSchema.safeParse(c.env);
+let cachedConfig: {
+  db: ReturnType<typeof getDb>;
+  logger: ReturnType<typeof getLogger>;
+} | null = null;
 
-  if (!result.success) {
-    console.error('❌ Invalid Environment Variables:', result.error.format());
-    throw new HTTPException(500, { message: 'Server Configuration Error' });
+export const configMiddleware = createMiddleware(async (c, next) => {
+  if (!cachedConfig) {
+    const runtimeEnv = env<Bindings>(c);
+
+    const result = envSchema.safeParse(runtimeEnv);
+
+    if (!result.success) {
+      console.error('❌ Env Validation Failed:', result.error.format());
+      throw new Error('Invalid Environment');
+    }
+
+    cachedConfig = {
+      db: getDb(result.data.DATABASE_URL),
+      logger: getLogger(result.data.NODE_ENV)
+    };
   }
 
-  // Inject logger into request context
-  c.set('logger', getLogger(result.data.NODE_ENV));
-  c.set('db', getDb(result.data.DATABASE_URL)); // Injected once per request
+  const reqId = (c.req.header('x-request-id') || crypto.randomUUID()) as string;
+
+  // Create the Pino Child Logger (Inherits parent config + adds reqId)
+  const requestLogger = cachedConfig.logger.child({ reqId });
+
+  // Inject into Context
+  c.set('db', cachedConfig.db);
+  c.set('logger', requestLogger);
+
+  // Echo back for the client
+  c.res.headers.set('x-request-id', reqId);
 
   await next();
 });
