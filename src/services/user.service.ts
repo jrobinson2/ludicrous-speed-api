@@ -9,7 +9,7 @@ import type { Logger } from '../lib/logger.js';
 const GitHubUserSchema = z.object({
   login: z.string(),
   id: z.number(),
-  avatar_url: z.string().url()
+  avatar_url: z.url()
 });
 
 export type GitHubUser = z.infer<typeof GitHubUserSchema>;

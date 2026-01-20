@@ -2,11 +2,23 @@ import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
 /**
- * Standardized API Response for Ludicrous Speed
+ * Standardized API Response Vessel (JSend-Inspired)
+ * * DESIGN PRINCIPLES:
+ * 1. Consistent Structure: Every response returns a `success` boolean.
+ * 2. Frontend-Friendly: Error metadata is "flattened" at the top level.
+ * This allows TanStack Query, SWR, or Axios to access error codes
+ * directly (e.g., `error.code`) without nesting (e.g., `error.meta.code`).
+ * 3. Type Safety: Uses Generics to ensure metadata remains type-safe
+ * without resorting to 'any'.
+ * * @see https://github.com/omniti-labs/jsend
  */
 export const reply = {
   /**
    * Success: 2xx
+   * Returns data wrapped in a success object.
+   * * @param c - Hono Context
+   * @param data - The payload to return
+   * @param status - HTTP Status Code (Default: 200)
    */
   ok: <T>(c: Context, data: T, status: ContentfulStatusCode = 200) => {
     return c.json(
@@ -20,18 +32,23 @@ export const reply = {
 
   /**
    * Error: 4xx / 5xx
+   * Returns an error message and flattens additional metadata.
+   * * @param c - Hono Context
+   * @param message - Human-readable error message
+   * @param status - HTTP Status Code (Default: 400)
+   * @param meta - Optional object containing 'code', 'trace', or 'details'
    */
-  fail: (
+  fail: <P extends Record<string, unknown>>(
     c: Context,
     message: string,
     status: ContentfulStatusCode = 400,
-    extra: Record<string, unknown> = {}
+    meta?: P
   ) => {
     return c.json(
       {
         success: false,
         error: message,
-        meta: extra
+        ...meta
       },
       status
     );

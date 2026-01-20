@@ -7,6 +7,7 @@ import { getLogger } from '../lib/logger.js';
 let cachedConfig: {
   db: ReturnType<typeof getDb>;
   logger: ReturnType<typeof getLogger>;
+  isDev: boolean;
 } | null = null;
 
 export const configMiddleware = createMiddleware(async (c, next) => {
@@ -22,18 +23,24 @@ export const configMiddleware = createMiddleware(async (c, next) => {
 
     cachedConfig = {
       db: getDb(result.data.DATABASE_URL),
-      logger: getLogger(result.data.NODE_ENV)
+      logger: getLogger(result.data.NODE_ENV),
+      isDev: result.data.NODE_ENV === 'development'
     };
   }
 
   const reqId = (c.req.header('x-request-id') || crypto.randomUUID()) as string;
 
-  // Create the Pino Child Logger (Inherits parent config + adds reqId)
-  const requestLogger = cachedConfig.logger.child({ reqId });
+  // Create a request-scoped child logger
+  const requestLogger = cachedConfig.logger.child({
+    reqId,
+    method: c.req.method,
+    path: c.req.path
+  });
 
   // Inject into Context
   c.set('db', cachedConfig.db);
   c.set('logger', requestLogger);
+  c.set('isDev', cachedConfig.isDev);
 
   // Echo back for the client
   c.res.headers.set('x-request-id', reqId);

@@ -3,7 +3,7 @@ import type { Database } from '../db/client.js';
 import type { getLogger } from './logger.js';
 
 export const envSchema = z.object({
-  DATABASE_URL: z.string().url(),
+  DATABASE_URL: z.url(),
   API_KEY: z.string().min(1),
   NODE_ENV: z
     .enum(['development', 'production', 'test'])
@@ -16,4 +16,5 @@ export type Bindings = z.infer<typeof envSchema>;
 export type Variables = {
   logger: ReturnType<typeof getLogger>;
   db: Database;
+  isDev: boolean;
 };

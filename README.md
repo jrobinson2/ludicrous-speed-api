@@ -56,7 +56,7 @@ src/
 │   └── logger.ts        <-- Centralized pino logging factory
 ├── middleware/
 │   ├── config.ts        <-- Global Env Validation Middleware
-│   ├── exception.ts     <-- Global Hono Error Handler
+│   ├── shield.ts        <-- Global Hono Error Handler
 │   └── auth.ts          <-- Custom logic (API Keys, JWT, etc.)
 ├── services/
 │   └── user.service.ts  <-- Business Logic (Drizzle Queries)
@@ -74,11 +74,11 @@ src/
 
 ```typescript
 import { z } from 'zod';
-import type { Database } from '../db/index.js';
+import type { Database } from '../db/client.js';
 import type { getLogger } from './logger.js';
 
 export const envSchema = z.object({
-  DATABASE_URL: z.string().url(),
+  DATABASE_URL: z.url(),
   API_KEY: z.string().min(1),
   NODE_ENV: z
     .enum(['development', 'production', 'test'])
@@ -91,6 +91,7 @@ export type Bindings = z.infer<typeof envSchema>;
 export type Variables = {
   logger: ReturnType<typeof getLogger>;
   db: Database;
+  isDev: boolean;
 };
 
 
@@ -101,50 +102,113 @@ export type Variables = {
 ## 2. Smart Logger Factory (`src/lib/logger.ts`)
 
 ```typescript
-import pino from 'pino';
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 
-/**
- * Factory for creating configured pino instances.
- * @param env - The current NODE_ENV
- * @param isInternal - If true, uses sync mode to ensure logs appear during crashes/shutdowns
- */
-
-// Cache the logger instance
-let logger: pino.Logger | null = null;
-
-export const getLogger = (env: string = 'development', isInternal = false) => {
-  // Return the existing logger if it exists
-  if (logger && !isInternal) return logger;
-
-  const instance = pino({
-    level: env === 'development' ? 'debug' : 'info',
-    transport:
-      env === 'development'
-        ? {
-            target: 'pino-pretty',
-            options: {
-              sync: isInternal,
-              colorize: true,
-              levelFirst: true,
-              translateTime: 'SYS:standard',
-              ignore: 'pid,hostname',
-              customColors:
-                'info:cyan,warn:magenta,error:red,fatal:bgRed,debug:white',
-              useOnlyCustomProps: false
-            }
-          }
-        : undefined
-  });
-
-  // Only cache the "standard" logger, not the "internal/sync" one
-  if (!isInternal) {
-    logger = instance;
-  }
-
-  return instance;
+const LEVELS: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+  fatal: 4
 };
 
-export type Logger = ReturnType<typeof getLogger>;
+export type Logger = {
+  info: (m: unknown, d?: unknown) => void;
+  error: (m: unknown, d?: unknown) => void;
+  warn: (m: unknown, d?: unknown) => void;
+  fatal: (m: unknown, d?: unknown) => void;
+  debug: (m: unknown, d?: unknown) => void;
+  child: (extraContext: Record<string, unknown>) => Logger;
+};
+
+// Helper to narrow types for TypeScript
+const isObject = (val: unknown): val is Record<string, unknown> =>
+  typeof val === 'object' && val !== null && !Array.isArray(val);
+
+export class PlaidLogger implements Logger {
+  constructor(
+    private readonly env: string,
+    private readonly context: Record<string, unknown> = {},
+    private readonly minLevel: number = env === 'development' ? 0 : 1
+  ) {}
+
+  child(extraContext: Record<string, unknown>): PlaidLogger {
+    return new PlaidLogger(
+      this.env,
+      { ...this.context, ...extraContext },
+      this.minLevel
+    );
+  }
+
+  private log(level: LogLevel, first: unknown, second?: unknown): void {
+    if (LEVELS[level] < this.minLevel) return;
+
+    // 1. Normalize: Identify which argument is the message and which is the meta
+    const msg =
+      typeof first === 'string'
+        ? first
+        : typeof second === 'string'
+          ? second
+          : String(first ?? '');
+    const meta = isObject(first) ? first : isObject(second) ? second : {};
+
+    // 2. Handle Error objects by extracting message and stack
+    const processedMeta = Object.entries(meta).reduce(
+      (acc, [key, value]) => {
+        if (value instanceof Error) {
+          acc[key] = { message: value.message, stack: value.stack };
+        } else {
+          acc[key] = value;
+        }
+        return acc;
+      },
+      {} as Record<string, unknown>
+    );
+
+    // 3. Compose: Single source of truth for the object structure
+    const logPayload = {
+      level,
+      time: Date.now(),
+      ...this.context,
+      ...processedMeta,
+      msg
+    };
+
+    const output = JSON.stringify(logPayload);
+
+    if (level === 'error' || level === 'fatal') {
+      console.error(output);
+    } else {
+      console.log(output);
+    }
+  }
+
+  debug(m: unknown, d?: unknown): void {
+    this.log('debug', m, d);
+  }
+  info(m: unknown, d?: unknown): void {
+    this.log('info', m, d);
+  }
+  warn(m: unknown, d?: unknown): void {
+    this.log('warn', m, d);
+  }
+  error(m: unknown, d?: unknown): void {
+    this.log('error', m, d);
+  }
+  fatal(m: unknown, d?: unknown): void {
+    this.log('fatal', m, d);
+  }
+}
+
+let cachedLogger: PlaidLogger | null = null;
+
+export const getLogger = (env: string = 'development'): PlaidLogger => {
+  if (cachedLogger) return cachedLogger;
+
+  cachedLogger = new PlaidLogger(env);
+  return cachedLogger;
+};
+
 
 
 ```
@@ -158,13 +222,14 @@ export type Logger = ReturnType<typeof getLogger>;
 ```typescript
 import { env } from 'hono/adapter';
 import { createMiddleware } from 'hono/factory';
-import { getDb } from '../db/index.js';
+import { getDb } from '../db/client.js';
 import { type Bindings, envSchema } from '../lib/env.js';
 import { getLogger } from '../lib/logger.js';
 
 let cachedConfig: {
   db: ReturnType<typeof getDb>;
   logger: ReturnType<typeof getLogger>;
+  isDev: boolean;
 } | null = null;
 
 export const configMiddleware = createMiddleware(async (c, next) => {
@@ -180,18 +245,24 @@ export const configMiddleware = createMiddleware(async (c, next) => {
 
     cachedConfig = {
       db: getDb(result.data.DATABASE_URL),
-      logger: getLogger(result.data.NODE_ENV)
+      logger: getLogger(result.data.NODE_ENV),
+      isDev: result.data.NODE_ENV === 'development'
     };
   }
 
   const reqId = (c.req.header('x-request-id') || crypto.randomUUID()) as string;
 
-  // Create the Pino Child Logger (Inherits parent config + adds reqId)
-  const requestLogger = cachedConfig.logger.child({ reqId });
+  // Create a request-scoped child logger
+  const requestLogger = cachedConfig.logger.child({
+    reqId,
+    method: c.req.method,
+    path: c.req.path
+  });
 
   // Inject into Context
   c.set('db', cachedConfig.db);
   c.set('logger', requestLogger);
+  c.set('isDev', cachedConfig.isDev);
 
   // Echo back for the client
   c.res.headers.set('x-request-id', reqId);
@@ -250,7 +321,7 @@ import type { Logger } from '../lib/logger.js';
 const GitHubUserSchema = z.object({
   login: z.string(),
   id: z.number(),
-  avatar_url: z.string().url()
+  avatar_url: z.url()
 });
 
 export type GitHubUser = z.infer<typeof GitHubUserSchema>;
@@ -309,7 +380,7 @@ const userRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 const userSchema = z.object({
   name: z.string().min(2),
-  email: z.string().email()
+  email: z.email()
 });
 
 // --- Routes ---
@@ -368,12 +439,12 @@ export default userRoutes;
 import { Hono } from 'hono';
 import type { Bindings, Variables } from './lib/env.js';
 import { configMiddleware } from './middleware/config.js';
-import { globalErrorHandler } from './middleware/exception.js';
+import { shield } from './middleware/shield.js';
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 app.use('*', configMiddleware);
-app.onError(globalErrorHandler);
+app.onError(shield);
 
 app.get('/', (c) => {
   return c.json({ message: 'Welcome to the Ludicrous Speed API!' });
@@ -393,22 +464,36 @@ import app from './app.js';
 import { closeWithGrace } from './lib/grace.js';
 import { getLogger } from './lib/logger.js';
 
-const logger = getLogger(process.env.NODE_ENV || 'development', true);
+const logger = getLogger(process.env.NODE_ENV || 'development');
+
+const PORT = process.env.PORT || 3000;
 
 const server = Bun.serve({
   fetch: app.fetch,
-  port: process.env.PORT || 3000
+  port: PORT
 });
 
-logger.info(`
+const isDev = process.env.NODE_ENV === 'development';
+
+if (isDev) {
+  console.log(`
 🚀 LUDICROUS SPEED: ACTIVE
 --------------------------
+Status: They've gone to plaid.
 Runtime: Bun ${Bun.version}
-URL: http://localhost:${server.port}
+Endpoint: http://localhost:${PORT}
 --------------------------
-`);
+"What's the matter, Colonel Sandurz? Chicken?"
+  `);
+} else {
+  logger.info(
+    { status: 'PLAID', runtime: Bun.version, port: PORT },
+    'Server Started'
+  );
+}
 
-closeWithGrace(logger, { delay: 5000 }, async () => {
+// Manage server lifecycle and process signals
+closeWithGrace(logger, async () => {
   server.stop(false);
   logger.info('Airlock sealed. Draining remaining connections...');
 });

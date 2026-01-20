@@ -1,83 +1,85 @@
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
-/**
- * Base App Error
- * All custom domain errors inherit from this.
- */
+export type ErrorOptions = {
+  code?: string;
+  meta?: Record<string, unknown>;
+};
+
 export class AppError extends Error {
   constructor(
     public override readonly message: string,
     public readonly status: ContentfulStatusCode = 500,
-    public readonly code?: string
+    public readonly code?: string,
+    public readonly meta: Record<string, unknown> = {}
   ) {
     super(message);
     this.name = this.constructor.name;
-
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, this.constructor);
     }
   }
 }
 
-/**
- * 400 - Bad Request
- */
+// --- DOMAIN ERRORS (Your Logic) ---
+
 export class BadRequestError extends AppError {
-  constructor(message = 'Bad Request', code = 'BAD_REQUEST') {
-    super(message, 400, code);
+  constructor(message = 'Bad Request', options: ErrorOptions = {}) {
+    super(message, 400, options.code ?? 'BAD_REQUEST', options.meta);
   }
 }
 
-/**
- * 400 - Validation Error
- */
 export class ValidationError extends AppError {
-  constructor(message = 'Validation Failed', code = 'VALIDATION_ERROR') {
-    super(message, 400, code);
+  constructor(message = 'Validation Failed', options: ErrorOptions = {}) {
+    super(message, 400, options.code ?? 'VALIDATION_ERROR', options.meta);
   }
 }
 
-/**
- * 401 - Unauthorized
- */
 export class UnauthorizedError extends AppError {
-  constructor(message = 'Unauthorized', code = 'UNAUTHORIZED') {
-    super(message, 401, code);
+  constructor(message = 'Unauthorized', options: ErrorOptions = {}) {
+    super(message, 401, options.code ?? 'UNAUTHORIZED', options.meta);
   }
 }
 
-/**
- * 403 - Forbidden
- */
 export class ForbiddenError extends AppError {
-  constructor(message = 'Forbidden', code = 'FORBIDDEN') {
-    super(message, 403, code);
+  constructor(message = 'Forbidden', options: ErrorOptions = {}) {
+    super(message, 403, options.code ?? 'FORBIDDEN', options.meta);
   }
 }
 
-/**
- * 404 - Not Found
- */
 export class NotFoundError extends AppError {
-  constructor(message = 'Resource not found', code = 'NOT_FOUND') {
-    super(message, 404, code);
+  constructor(message = 'Resource not found', options: ErrorOptions = {}) {
+    super(message, 404, options.code ?? 'NOT_FOUND', options.meta);
   }
 }
 
-/**
- * 409 - Conflict
- */
 export class ConflictError extends AppError {
-  constructor(message = 'Resource already exists', code = 'CONFLICT') {
-    super(message, 409, code);
+  constructor(message = 'Resource already exists', options: ErrorOptions = {}) {
+    super(message, 409, options.code ?? 'CONFLICT', options.meta);
   }
 }
 
-/**
- * 429 - Too Many Requests
- */
 export class RateLimitError extends AppError {
-  constructor(message = 'Too many requests', code = 'RATE_LIMIT_EXCEEDED') {
-    super(message, 429, code);
+  constructor(message = 'Too many requests', options: ErrorOptions = {}) {
+    super(message, 429, options.code ?? 'RATE_LIMIT_EXCEEDED', options.meta);
+  }
+}
+
+export class InternalServerError extends AppError {
+  constructor(message = 'Internal Server Error', options: ErrorOptions = {}) {
+    super(message, 500, options.code ?? 'INTERNAL_SERVER_ERROR', options.meta);
+  }
+}
+
+// --- INFRASTRUCTURE ERRORS (External Services) ---
+
+export class BadGatewayError extends AppError {
+  constructor(message = 'Bad Gateway', options: ErrorOptions = {}) {
+    super(message, 502, options.code ?? 'BAD_GATEWAY', options.meta);
+  }
+}
+
+export class GatewayTimeoutError extends AppError {
+  constructor(message = 'Gateway Timeout', options: ErrorOptions = {}) {
+    super(message, 504, options.code ?? 'GATEWAY_TIMEOUT', options.meta);
   }
 }

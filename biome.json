@@ -19,7 +19,8 @@
     "rules": {
       "recommended": true,
       "style": {
-        "useImportType": "error"
+        "useImportType": "error",
+        "useThrowOnlyError": "error"
       }
     }
   },

@@ -1,23 +1,20 @@
 import type { ErrorHandler } from 'hono';
-import { env } from 'hono/adapter'; // Added for bulletproof Env access
 import { HTTPException } from 'hono/http-exception';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { ZodError } from 'zod'; // Added to catch validation failures
+import { ZodError, z } from 'zod';
 import type { Bindings, Variables } from '../lib/env.js';
 import { AppError } from '../lib/errors.js';
 import { reply } from '../lib/response.js';
 
-export const globalErrorHandler: ErrorHandler<{
+export const shield: ErrorHandler<{
   Bindings: Bindings;
   Variables: Variables;
 }> = (err, c) => {
   const logger = c.get('logger');
-
-  // Use the adapter to check environment consistently
-  const runtimeEnv = env(c);
-  const isDev = runtimeEnv.NODE_ENV === 'development';
+  const isDev = c.get('isDev') ?? false;
 
   // 1. Structured Logging
+  // We log the error with its full context before transforming it for the client
   logger?.error(
     {
       path: c.req.path,
@@ -27,42 +24,48 @@ export const globalErrorHandler: ErrorHandler<{
           ? {
               name: err.name,
               message: err.message,
-              stack: isDev ? err.stack : undefined
+              stack: isDev ? err.stack : undefined,
+              // Capture meta in logs if it exists
+              ...(err instanceof AppError
+                ? { meta: err.meta, code: err.code }
+                : {})
             }
           : err
     },
-    '💥 Ludicrous Error Detected'
+    '🛡️ SHIELD: Impact Detected (Error Caught)'
   );
 
-  // 2. Handle Zod Validation Errors (NEW)
+  // 2. Handle Zod Validation Errors
   if (err instanceof ZodError) {
+    const fieldErrors = z.treeifyError(err);
+
     return reply.fail(c, 'Validation Failed', 400, {
-      details: err.flatten().fieldErrors, // Returns exactly which fields failed
+      details: fieldErrors,
       code: 'VALIDATION_ERROR'
     });
   }
 
-  // 3. Handle Custom App Errors (NotFoundError, etc.)
+  // 3. Handle Custom App Errors
   if (err instanceof AppError) {
     return reply.fail(c, err.message, err.status as ContentfulStatusCode, {
-      code: err.code
+      code: err.code,
+      ...err.meta // Automatically spreads any meta passed during 'throw'
     });
   }
 
-  // 4. Handle Hono HTTPExceptions (e.g., 401 Unauthorized from Hono middleware)
+  // 4. Handle Hono HTTPExceptions
   if (err instanceof HTTPException) {
     return reply.fail(c, err.message, err.status);
   }
 
-  // 5. Handle Database/Neon Specific Errors
-  // Catching Postgres unique constraint violations (error code 23505)
+  // 5. Handle Database Unique Constraint Violations
   if (err instanceof Error && err.message.includes('unique constraint')) {
     return reply.fail(c, 'Resource already exists', 409, {
       code: 'CONFLICT_ERROR'
     });
   }
 
-  // 6. Critical Failures (500)
+  // 6. Generic Fallback (500)
   const message = isDev ? err.message : 'Internal Server Error';
 
   return reply.fail(c, message, 500, {

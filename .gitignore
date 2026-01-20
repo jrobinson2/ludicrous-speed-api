@@ -1,28 +1,38 @@
-# dev
-.yarn/
-!.yarn/releases
-.vscode/*
-!.vscode/launch.json
-!.vscode/*.code-snippets
-.idea/workspace.xml
-.idea/usage.statistics.xml
-.idea/shelf
+# --- Ludicrous Speed: Build Artifacts ---
+/dist/
+/edge/
+/.wrangler/
+/.turbo/
+/node_modules/
 
-# deps
-node_modules/
+# --- Database & Drizzle ---
+# Drizzle migrations should be committed, but temporary snapshots or 
+# local SQLite files (if you ever test locally) should not.
+*.db
+*.db-journal
+*.sqlite
 
-# env
+# --- Environment & Secrets (TOP PRIORITY) ---
 .env
-.env.production
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.local
 
-# logs
+# --- Tooling & IDE ---
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+*.tsbuildinfo
+
+# --- Logs ---
 logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-# misc
-.DS_Store
+bun-debug.log*
