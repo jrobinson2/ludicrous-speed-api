@@ -2,35 +2,73 @@
 
 > "Light speed is too slow. We have to go straight to... **Ludicrous Speed.**"
 
-**Ludicrous Speed** is a high-performance, **runtime-agnostic** API boilerplate built for the modern edge. While optimized for **Bun**, this architecture is designed to be a "Universal Vessel"—leveraging **Hono** for lightweight routing, **Drizzle ORM** for type-safe database interactions, and **Neon** for scalable, serverless PostgreSQL.
+**Ludicrous Speed** is a high-performance, **runtime-agnostic** API boilerplate built for the modern edge.
+
+It is designed to run anywhere—**Bun, Node, or edge runtimes**—and adapts automatically to each environment’s capabilities.
+
+This architecture is a “Universal Vessel,” powered by **Hono**, **Drizzle ORM**, and **Neon**.
 
 ---
 
-### 🏗️ Architectural Overview
+## 🧠 Design Philosophy
 
-Ludicrous Speed is built on the principle of **"Separation of Concerns at Warp Velocity."** Every layer is decoupled to ensure the fastest possible execution and maximum developer ergonomics.
+Ludicrous Speed is built around a strict principle:
 
+> **Correctness is request-safe.
+> Performance is process-scoped.**
 
-* **The Engine (Runtime):** **Bun**. Built for speed. This boilerplate leverages the ultra-fast Bun HTTP server and native SQLite/File-system APIs for maximum performance.
-* **The Navigator (Framework):** **Hono**. A web-standard framework that maintains sub-millisecond routing overhead across any environment.
-* **The Fuel Tank (Database):** **Neon**. Serverless PostgreSQL utilizing the HTTP driver to eliminate TCP handshake latency in serverless/edge environments.
-* **The Hull (ORM):** **Drizzle**. A "TypeScript-first" SQL wrapper that provides full type safety with zero runtime bloat.
-* **The Shields (Validation):** **Zod**. End-to-end validation for Environment Variables, API Request payloads, and External API responses.
+### Request-Safe Correctness (Edge-Safe by Default)
+
+No request ever assumes warm state. If a single request executes in total isolation (cold start), the system behaves perfectly.
+
+* Env variables are validated on first contact.
+* No business logic depends on global state.
+* Initialization is **idempotent**.
+
+### Opportunistic Process Reuse (Server-Efficient)
+
+The system **detects and benefits from reuse when available**. Expensive factories (DB clients, loggers) are memoized at module scope. Reuse is a **performance hint**, not a requirement.
+
+### Capability-Based Execution
+
+Rather than targeting a single runtime, Ludicrous Speed adapts to the environment:
+
+| Runtime | DB Strategy | Connection Model | Notes |
+| --- | --- | --- | --- |
+| Cloudflare Workers | Neon HTTP | No TCP | Edge-safe, short-lived |
+| Bun / Node.js | Neon TCP | Connection pool | Fast server-grade throughput |
 
 ---
 
-### 🌍 Runtime Agnostic by Design
+## 🏗️ Architectural Overview
 
-The "Schwartz" of Ludicrous Speed is its reliance on **Web Standard APIs** (`fetch`, `Request`, `Response`) rather than runtime-specific globals.
+Ludicrous Speed is built on **“Separation of Concerns at Warp Velocity.”**
 
-* **Zero Lock-in:** Move from a Bun-based Docker container to Cloudflare Workers or a standard Node.js VPS in minutes.
-* **Universal Entry:** The entry point detects if `Bun` is present; if not, it gracefully engages the Hono Node.js adapter.
-* **Edge-Ready:** Every dependency in this stack is compatible with "The Edge," avoiding heavy Node-specific APIs that break in restricted environments.
-* **Future-Proof:** Use the Schwartz to stay portable. By coding to Web Standards, your business logic remains intact even as the JavaScript runtime landscape evolves.
+* **The Engine (Runtime):** **Bun / Node / Edge** adapts plumbing automatically.
+* **The Navigator (Framework):** **Hono** provides a lightweight, web-standard router.
+* **The Fuel Tank (Database):** **Neon** switches between HTTP and TCP pooling dynamically.
+* **The Hull (ORM):** **Drizzle** ensures type-safe SQL with zero runtime bloat.
+* **The Shields (Validation):** **Zod** handles end-to-end safety for Envs and APIs.
 
 ---
 
-### 📊 Performance Benchmarks (Bun Edition)
+## 📂 Recommended Folder Structure
+
+```text
+src/
+├── db/          <-- Drizzle engine & schema definitions
+├── lib/         <-- Shared logic (Env, Logger, Errors, Graceful Shutdown)
+├── middleware/  <-- Config validation & Global error handling
+├── services/    <-- Business logic (Drizzle Queries)
+├── routes/      <-- Controllers (Hono Request/Response)
+├── app.ts       <-- App composition
+└── server.ts    <-- Bun-specific entry point
+
+```
+
+---
+
+## 📊 Performance Benchmarks (Honest, Not Hype)
 
 | Velocity Level | Latency | Status |
 | --- | --- | --- |
@@ -41,462 +79,140 @@ The "Schwartz" of Ludicrous Speed is its reliance on **Web Standard APIs** (`fet
 
 ---
 
-## 📂 Recommended Folder Structure
+## ⚡ Implementation Highlights
 
-```text
-src/
-├── db/
-│   ├── client.ts        <-- Drizzle client factory
-│   └── schema.ts        <-- Database table definitions
-├── lib/
-│   ├── api.ts           <-- High-performance Native Fetch Wrapper
-│   ├── env.ts           <-- Zod Env Schema & Type Definitions
-│   ├── errors.ts        <-- Domain Error definitions
-│   ├── grace.ts         <-- Graceful shutdown utility
-│   └── logger.ts        <-- Centralized pino logging factory
-├── middleware/
-│   ├── config.ts        <-- Global Env Validation Middleware
-│   ├── shield.ts        <-- Global Hono Error Handler
-│   └── auth.ts          <-- Custom logic (API Keys, JWT, etc.)
-├── services/
-│   └── user.service.ts  <-- Business Logic (Drizzle Queries)
-├── routes/
-│   └── user.route.ts    <-- Controllers (HTTP Request/Response)
-├── app.ts               <-- App setup & Error Handling
-└── server.ts            <-- Server entry (Bun specific)
+### 1. The Adaptive Engine (The Magic)
 
+The system detects if the runtime supports TCP (Bun/Node) or requires HTTP (Edge) and initializes the optimal Drizzle driver automatically.
 
-```
+<details>
+<summary><b>View src/db/engine.ts</b></summary>
 
----
-
-## 1. Environment & Types (`src/lib/env.ts`)
-
-```typescript
-import { z } from 'zod';
-import type { Database } from '../db/client.js';
-import type { getLogger } from './logger.js';
-
-export const envSchema = z.object({
-  DATABASE_URL: z.url(),
-  API_KEY: z.string().min(1),
-  NODE_ENV: z
-    .enum(['development', 'production', 'test'])
-    .default('development'),
-  PORT: z.coerce.number().default(3000)
-});
-
-export type Bindings = z.infer<typeof envSchema>;
-
-export type Variables = {
-  logger: ReturnType<typeof getLogger>;
-  db: Database;
-  isDev: boolean;
-};
-
-
-```
-
----
-
-## 2. Smart Logger Factory (`src/lib/logger.ts`)
-
-```typescript
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal';
-
-const LEVELS: Record<LogLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-  fatal: 4
-};
-
-export type Logger = {
-  info: (m: unknown, d?: unknown) => void;
-  error: (m: unknown, d?: unknown) => void;
-  warn: (m: unknown, d?: unknown) => void;
-  fatal: (m: unknown, d?: unknown) => void;
-  debug: (m: unknown, d?: unknown) => void;
-  child: (extraContext: Record<string, unknown>) => Logger;
-};
-
-// Helper to narrow types for TypeScript
-const isObject = (val: unknown): val is Record<string, unknown> =>
-  typeof val === 'object' && val !== null && !Array.isArray(val);
-
-export class PlaidLogger implements Logger {
-  constructor(
-    private readonly env: string,
-    private readonly context: Record<string, unknown> = {},
-    private readonly minLevel: number = env === 'development' ? 0 : 1
-  ) {}
-
-  child(extraContext: Record<string, unknown>): PlaidLogger {
-    return new PlaidLogger(
-      this.env,
-      { ...this.context, ...extraContext },
-      this.minLevel
-    );
-  }
-
-  private log(level: LogLevel, first: unknown, second?: unknown): void {
-    if (LEVELS[level] < this.minLevel) return;
-
-    // 1. Normalize: Identify which argument is the message and which is the meta
-    const msg =
-      typeof first === 'string'
-        ? first
-        : typeof second === 'string'
-          ? second
-          : String(first ?? '');
-    const meta = isObject(first) ? first : isObject(second) ? second : {};
-
-    // 2. Handle Error objects by extracting message and stack
-    const processedMeta = Object.entries(meta).reduce(
-      (acc, [key, value]) => {
-        if (value instanceof Error) {
-          acc[key] = { message: value.message, stack: value.stack };
-        } else {
-          acc[key] = value;
-        }
-        return acc;
-      },
-      {} as Record<string, unknown>
-    );
-
-    // 3. Compose: Single source of truth for the object structure
-    const logPayload = {
-      level,
-      time: Date.now(),
-      ...this.context,
-      ...processedMeta,
-      msg
-    };
-
-    const output = JSON.stringify(logPayload);
-
-    if (level === 'error' || level === 'fatal') {
-      console.error(output);
-    } else {
-      console.log(output);
-    }
-  }
-
-  debug(m: unknown, d?: unknown): void {
-    this.log('debug', m, d);
-  }
-  info(m: unknown, d?: unknown): void {
-    this.log('info', m, d);
-  }
-  warn(m: unknown, d?: unknown): void {
-    this.log('warn', m, d);
-  }
-  error(m: unknown, d?: unknown): void {
-    this.log('error', m, d);
-  }
-  fatal(m: unknown, d?: unknown): void {
-    this.log('fatal', m, d);
-  }
-}
-
-let cachedLogger: PlaidLogger | null = null;
-
-export const getLogger = (env: string = 'development'): PlaidLogger => {
-  if (cachedLogger) return cachedLogger;
-
-  cachedLogger = new PlaidLogger(env);
-  return cachedLogger;
-};
-
-
-
-```
-
----
-
-## 3. Core Middleware
-
-### Config & Logger (`src/middleware/config.ts`)
-
-```typescript
-import { env } from 'hono/adapter';
-import { createMiddleware } from 'hono/factory';
-import { getDb } from '../db/client.js';
-import { type Bindings, envSchema } from '../lib/env.js';
-import { getLogger } from '../lib/logger.js';
-
-let cachedConfig: {
-  db: ReturnType<typeof getDb>;
-  logger: ReturnType<typeof getLogger>;
-  isDev: boolean;
-} | null = null;
-
-export const configMiddleware = createMiddleware(async (c, next) => {
-  if (!cachedConfig) {
-    const runtimeEnv = env<Bindings>(c);
-
-    const result = envSchema.safeParse(runtimeEnv);
-
-    if (!result.success) {
-      console.error('❌ Env Validation Failed:', result.error.format());
-      throw new Error('Invalid Environment');
-    }
-
-    cachedConfig = {
-      db: getDb(result.data.DATABASE_URL),
-      logger: getLogger(result.data.NODE_ENV),
-      isDev: result.data.NODE_ENV === 'development'
-    };
-  }
-
-  const reqId = (c.req.header('x-request-id') || crypto.randomUUID()) as string;
-
-  // Create a request-scoped child logger
-  const requestLogger = cachedConfig.logger.child({
-    reqId,
-    method: c.req.method,
-    path: c.req.path
-  });
-
-  // Inject into Context
-  c.set('db', cachedConfig.db);
-  c.set('logger', requestLogger);
-  c.set('isDev', cachedConfig.isDev);
-
-  // Echo back for the client
-  c.res.headers.set('x-request-id', reqId);
-
-  await next();
-});
-
-
-```
-
----
-
-## 4. The Database Layer (`src/db/client.ts`)
-
-```typescript
-import { neon } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-http';
-import * as schema from './schema';
-
-/**
- * Persists in the Isolate/Process memory.
- * - Serverless: Lives as long as the "Warm Start".
- * - Serverful: Lives until the process restarts (e.g., bun --watch).
- */
-let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
+```ts
+import { neon, Pool } from '@neondatabase/serverless';
+import { drizzle as http } from 'drizzle-orm/neon-http';
+import { drizzle as server } from 'drizzle-orm/neon-serverless';
+import { isRuntime } from '../lib/runtime.js';
 
 export const getDb = (url: string) => {
-  // If the instance exists, return it. Simple. Fast.
-  if (db) return db;
+  const supportsTcp = isRuntime.Bun || isRuntime.Node;
 
-  // Only happens once per lifecycle
-  const client = neon(url);
-  db = drizzle(client, { schema });
-
-  return db;
+  if (!supportsTcp) {
+    return http(neon(url)); // Edge Strategy
+  } else {
+    return server(new Pool({ connectionString: url })); // Server Strategy
+  }
 };
 
-export type Database = ReturnType<typeof getDb>;
-
-
 ```
 
----
+</details>
 
-## 5. Service Layer (`src/services/user.service.ts`)
+### 2. Request-Local Context (The DX)
 
-```typescript
-import { eq } from 'drizzle-orm';
-import { z } from 'zod';
-import type { Database } from '../db/client.js';
-import { users } from '../db/schema.js';
-import { api } from '../lib/api.js';
-import { NotFoundError } from '../lib/errors.js';
-import type { Logger } from '../lib/logger.js';
+The `configMiddleware` validates environment variables once and injects the `db` and a child `logger` (with a unique Request ID) into the Hono context.
 
-const GitHubUserSchema = z.object({
-  login: z.string(),
-  id: z.number(),
-  avatar_url: z.url()
-});
+<details>
+<summary><b>View src/routes/user.route.ts</b></summary>
 
-export type GitHubUser = z.infer<typeof GitHubUserSchema>;
-
-// --- Database Operations ---
-
-export async function getAllUsers(db: Database) {
-  return await db.select().from(users);
-}
-
-export async function getUserById(db: Database, id: number) {
-  const user = await db.query.users.findFirst({
-    where: eq(users.id, id)
-  });
-
-  if (!user) {
-    throw new NotFoundError(`User with ID ${id} vanished into deep space`);
-  }
-
-  return user;
-}
-
-export async function createUser(
-  db: Database,
-  data: { name: string; email: string }
-) {
-  const [newUser] = await db.insert(users).values(data).returning();
-  return newUser;
-}
-
-// --- External API Operations ---
-
-export async function getGitHubProfile(username: string, logger: Logger) {
-  return await api(`https://api.github.com/users/${username}`, {
-    schema: GitHubUserSchema, // Automated validation
-    logger
-  });
-}
-
-
-```
-
----
-
-## 6. Route Layer (`src/routes/user.route.ts`)
-
-```typescript
-import { zValidator } from '@hono/zod-validator';
-import { Hono } from 'hono';
-import { z } from 'zod';
-import type { Bindings, Variables } from '../lib/env.js';
-import { reply } from '../lib/response.js';
-import * as UserService from '../services/user.service.js';
-
-const userRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
-
-const userSchema = z.object({
-  name: z.string().min(2),
-  email: z.email()
-});
-
-// --- Routes ---
+```ts
+const userRoutes = new Hono<{ Variables: Variables }>();
 
 userRoutes.get('/', async (c) => {
   const logger = c.get('logger');
-  logger.info('🛰️ Fetching all users at Ludicrous Speed');
-
-  const db = c.get('db');
-  const data = await UserService.getAllUsers(db);
-
-  return reply.ok(c, data);
-});
-
-userRoutes.get('/:id', async (c) => {
-  const id = Number(c.req.param('id'));
   const db = c.get('db');
 
-  const user = await UserService.getUserById(db, id);
-
-  return reply.ok(c, user);
+  logger.info('🛰️ Fetching users at Ludicrous Speed');
+  
+  const data = await db.select().from(users);
+  return c.json(data);
 });
 
-userRoutes.post('/', zValidator('json', userSchema), async (c) => {
-  const logger = c.get('logger');
-  const validated = c.req.valid('json');
-  const db = c.get('db');
+```
 
-  const newUser = await UserService.createUser(db, validated);
+</details>
 
-  logger.info({ msg: '👤 New user created', userId: newUser.id });
+### 3. Smart Logging & Plumbing
 
-  return reply.ok(c, newUser, 201);
-});
+The system includes a production-ready `PlaidLogger` and graceful shutdown utilities out of the box.
 
-userRoutes.get('/github/:username', async (c) => {
-  const username = c.req.param('username');
-  const logger = c.get('logger'); // Traceable child logger from configMiddleware
+<details>
+<summary><b>View Internal Plumbing Details</b></summary>
 
-  // Pass logger into the service to maintain the trace through the external fetch
-  const profile = await UserService.getGitHubProfile(username, logger);
+* **Logger:** Structured JSON logging with `child` context support.
+* **Validation:** Centralized Zod schema for the Runtime Environment (abstracted via Hono for Node, Bun, and Edge).
+* **Error Shield:** Global Hono error handler that converts domain errors to standard HTTP responses.
 
-  return reply.ok(c, profile);
-});
+</details>
 
-export default userRoutes;
+---
 
+## 🧪 Getting Started
 
+### 1. Install `mise-en-place`
+
+This project uses **mise** to manage tool versions (including the project-specific Bun version).
+
+#### macOS (Preferred – Homebrew)
+
+```bash
+brew install mise
+```
+
+#### Any Platform (Official Installer)
+
+If you prefer the official installer or are not on macOS, follow the instructions here:
+👉 [https://mise.jdx.dev/getting-started.html](https://mise.jdx.dev/getting-started.html)
+
+After installation, ensure `mise` is available in your shell:
+
+```bash
+mise --version
 ```
 
 ---
 
-## 7. The App Core (`src/app.ts`)
+### 2. Install Tooling Versions
 
-```typescript
-import { Hono } from 'hono';
-import type { Bindings, Variables } from './lib/env.js';
-import { configMiddleware } from './middleware/config.js';
-import { shield } from './middleware/shield.js';
+Clone the repo, then from the project root:
 
-const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+```bash
+cd ludicrous-speed
+mise use
+```
 
-app.use('*', configMiddleware);
-app.onError(shield);
+> `mise use` installs **and activates** the exact tool versions required by this project (including Bun).
 
-app.get('/', (c) => {
-  return c.json({ message: 'Welcome to the Ludicrous Speed API!' });
-});
+---
 
-export default app;
+### 3. Install Dependencies
 
+Once Bun is installed by `mise`, install dependencies:
 
+```bash
+bun install
 ```
 
 ---
 
-## 8. The Bun Host (`src/server.ts`)
+### 4. Configure Environment Variables
 
-```typescript
-import app from './app.js';
-import { closeWithGrace } from './lib/grace.js';
-import { getLogger } from './lib/logger.js';
+Create your local environment file from the example:
 
-const logger = getLogger(process.env.NODE_ENV || 'development');
-
-const PORT = process.env.PORT || 3000;
-
-const server = Bun.serve({
-  fetch: app.fetch,
-  port: PORT
-});
-
-const isDev = process.env.NODE_ENV === 'development';
-
-if (isDev) {
-  console.log(`
-🚀 LUDICROUS SPEED: ACTIVE
---------------------------
-Status: They've gone to plaid.
-Runtime: Bun ${Bun.version}
-Endpoint: http://localhost:${PORT}
---------------------------
-"What's the matter, Colonel Sandurz? Chicken?"
-  `);
-} else {
-  logger.info(
-    { status: 'PLAID', runtime: Bun.version, port: PORT },
-    'Server Started'
-  );
-}
-
-// Manage server lifecycle and process signals
-closeWithGrace(logger, async () => {
-  server.stop(false);
-  logger.info('Airlock sealed. Draining remaining connections...');
-});
-
-
+```bash
+cp .env.example .env
 ```
+
+Update the values in `.env` as needed (database URL, secrets, etc.).
+
+---
+
+### 5. Run the Dev Server
+
+```bash
+bun run dev
+```
+
+Your API is now running at **Ludicrous Speed™** 🚀
+
+---

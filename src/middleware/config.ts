@@ -1,6 +1,7 @@
 import { env } from 'hono/adapter';
 import { createMiddleware } from 'hono/factory';
-import { getDb } from '../db/client.js';
+import { z } from 'zod';
+import { getDb } from '../db/engine.js';
 import { type Bindings, envSchema } from '../lib/env.js';
 import { getLogger } from '../lib/logger.js';
 
@@ -17,7 +18,7 @@ export const configMiddleware = createMiddleware(async (c, next) => {
     const result = envSchema.safeParse(runtimeEnv);
 
     if (!result.success) {
-      console.error('❌ Env Validation Failed:', result.error.format());
+      console.error('❌ Env Validation Failed:', z.treeifyError(result.error));
       throw new Error('Invalid Environment');
     }
 

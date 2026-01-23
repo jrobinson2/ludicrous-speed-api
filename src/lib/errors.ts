@@ -78,6 +78,20 @@ export class BadGatewayError extends AppError {
   }
 }
 
+export class DatabaseAlreadyInitializedError extends AppError {
+  constructor(
+    message = 'Database already initialized with a different DATABASE_URL',
+    options: ErrorOptions = {}
+  ) {
+    super(
+      message,
+      500,
+      options.code ?? 'DATABASE_ALREADY_INITIALIZED',
+      options.meta
+    );
+  }
+}
+
 export class GatewayTimeoutError extends AppError {
   constructor(message = 'Gateway Timeout', options: ErrorOptions = {}) {
     super(message, 504, options.code ?? 'GATEWAY_TIMEOUT', options.meta);
