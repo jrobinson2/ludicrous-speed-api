@@ -1,7 +1,6 @@
 import { neon, Pool } from '@neondatabase/serverless';
 import { drizzle as http } from 'drizzle-orm/neon-http';
 import { drizzle as server } from 'drizzle-orm/neon-serverless';
-import { DatabaseAlreadyInitializedError } from '../lib/errors.js';
 import { isRuntime } from '../lib/runtime.js';
 import * as schema from './schema.js';
 
@@ -13,28 +12,24 @@ import * as schema from './schema.js';
 
 type HttpDb = ReturnType<typeof http<typeof schema>>;
 type ServerDb = ReturnType<typeof server<typeof schema>>;
+export type Database = HttpDb | ServerDb;
 
-let db: HttpDb | ServerDb | null = null;
+let db: Database | null = null;
 let initializedUrl: string | null = null;
 
-export const getDb = (url: string) => {
-  if (db) {
-    if (initializedUrl !== url) {
-      throw new DatabaseAlreadyInitializedError(
-        'Whoa, the DB is already set up!',
-        {
-          meta: {
-            initializedUrl,
-            attemptedUrl: url
-          }
-        }
-      );
-    }
-
+/**
+ * Gets or initializes the database instance.
+ * Handles the "Stale Isolate" edge case by re-initializing if the URL changes.
+ */
+export const getDb = (url: string): Database => {
+  // If we have an existing instance and the URL matches, reuse it
+  if (db && initializedUrl === url) {
     return db;
   }
 
+  // If the URL changed (Infra rotation) or it's the first run: Initialize
   initializedUrl = url;
+
   const supportsTcp = isRuntime.Bun || isRuntime.Node;
 
   if (!supportsTcp) {
@@ -49,5 +44,3 @@ export const getDb = (url: string) => {
 
   return db;
 };
-
-export type Database = ReturnType<typeof getDb>;

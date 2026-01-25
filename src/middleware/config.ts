@@ -5,45 +5,42 @@ import { getDb } from '../db/engine.js';
 import { type Bindings, envSchema } from '../lib/env.js';
 import { getLogger } from '../lib/logger.js';
 
-let cachedConfig: {
-  db: ReturnType<typeof getDb>;
-  logger: ReturnType<typeof getLogger>;
-  isDev: boolean;
-} | null = null;
-
 export const configMiddleware = createMiddleware(async (c, next) => {
-  if (!cachedConfig) {
-    const runtimeEnv = env<Bindings>(c);
+  const runtimeEnv = env<Bindings>(c);
 
-    const result = envSchema.safeParse(runtimeEnv);
+  // Validate the environmental variables.
+  const result = envSchema.safeParse(runtimeEnv);
 
-    if (!result.success) {
-      console.error('❌ Env Validation Failed:', z.treeifyError(result.error));
-      throw new Error('Invalid Environment');
-    }
+  if (!result.success) {
+    const missingFields = [
+      ...new Set(result.error.issues.map((issue) => issue.path[0]))
+    ].join(', ');
 
-    cachedConfig = {
-      db: getDb(result.data.DATABASE_URL),
-      logger: getLogger(result.data.NODE_ENV),
-      isDev: result.data.NODE_ENV === 'development'
-    };
+    console.error('❌ Environment Validation Failed:');
+    console.error(z.treeifyError(result.error));
+
+    throw new Error(
+      `Ludicrous Speed cannot launch: Missing or invalid environment variables [ ${missingFields} ]`
+    );
   }
 
-  const reqId = (c.req.header('x-request-id') || crypto.randomUUID()) as string;
+  const { DATABASE_URL, NODE_ENV } = result.data;
 
-  // Create a request-scoped child logger
-  const requestLogger = cachedConfig.logger.child({
+  const db = getDb(DATABASE_URL);
+  const rootLogger = getLogger(NODE_ENV);
+
+  const reqId = (c.req.header('x-request-id') || crypto.randomUUID()) as string;
+  const requestLogger = rootLogger.child({
     reqId,
     method: c.req.method,
     path: c.req.path
   });
 
-  // Inject into Context
-  c.set('db', cachedConfig.db);
+  // Inject into Hono Context for use in routes/services
+  c.set('db', db);
   c.set('logger', requestLogger);
-  c.set('isDev', cachedConfig.isDev);
+  c.set('isDev', NODE_ENV === 'development');
 
-  // Echo back for the client
   c.res.headers.set('x-request-id', reqId);
 
   await next();

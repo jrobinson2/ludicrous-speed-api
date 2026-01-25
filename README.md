@@ -25,13 +25,13 @@ No request ever assumes warm state. If a single request executes in total isolat
 * No business logic depends on global state.
 * Initialization is **idempotent**.
 
-### Opportunistic Process Reuse (Server-Efficient)
+### Opportunistic Process Reuse (The Adaptive Singleton)
 
-The system **detects and benefits from reuse when available**. Expensive factories (DB clients, loggers) are memoized at module scope. Reuse is a **performance hint**, not a requirement.
+The system **detects and benefits from reuse when available**. Expensive factories (DB clients, loggers) use an **Adaptive Singleton** pattern—memoized at module scope for performance, but self-validating to ensure they never serve stale configuration if environment variables rotate mid-lifecycle.
 
-### Capability-Based Execution
+### Capability-Based Execution (The Lazy-Initialized Factory)
 
-Rather than targeting a single runtime, Ludicrous Speed adapts to the environment:
+Rather than targeting a single runtime, Ludicrous Speed uses **Lazy-Initialized Singletons** that adapt to the environment on the first request:
 
 | Runtime | DB Strategy | Connection Model | Notes |
 | --- | --- | --- | --- |
@@ -113,7 +113,7 @@ export const getDb = (url: string) => {
 The `configMiddleware` validates environment variables once and injects the `db` and a child `logger` (with a unique Request ID) into the Hono context.
 
 <details>
-<summary><b>View src/routes/user.route.ts</b></summary>
+<summary><b>View src/routes/user.routes.ts</b></summary>
 
 ```ts
 const userRoutes = new Hono<{ Variables: Variables }>();

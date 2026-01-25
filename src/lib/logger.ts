@@ -17,7 +17,6 @@ export type Logger = {
   child: (extraContext: Record<string, unknown>) => Logger;
 };
 
-// Helper to narrow types for TypeScript
 const isObject = (val: unknown): val is Record<string, unknown> =>
   typeof val === 'object' && val !== null && !Array.isArray(val);
 
@@ -39,29 +38,28 @@ export class PlaidLogger implements Logger {
   private log(level: LogLevel, first: unknown, second?: unknown): void {
     if (LEVELS[level] < this.minLevel) return;
 
-    // 1. Normalize: Identify which argument is the message and which is the meta
     const msg =
       typeof first === 'string'
         ? first
         : typeof second === 'string'
           ? second
           : String(first ?? '');
+
     const meta = isObject(first) ? first : isObject(second) ? second : {};
 
-    // 2. Handle Error objects by extracting message and stack
-    const processedMeta = Object.entries(meta).reduce(
-      (acc, [key, value]) => {
-        if (value instanceof Error) {
-          acc[key] = { message: value.message, stack: value.stack };
-        } else {
-          acc[key] = value;
-        }
-        return acc;
-      },
-      {} as Record<string, unknown>
-    );
+    const processedMeta: Record<string, unknown> = {};
+    const keys = Object.keys(meta);
 
-    // 3. Compose: Single source of truth for the object structure
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const value = meta[key];
+
+      processedMeta[key] =
+        value instanceof Error
+          ? { message: value.message, stack: value.stack }
+          : value;
+    }
+
     const logPayload = {
       level,
       time: Date.now(),
@@ -96,11 +94,23 @@ export class PlaidLogger implements Logger {
   }
 }
 
-let cachedLogger: PlaidLogger | null = null;
+/**
+ * CACHED LOGGER INSTANCE
+ * We store the environment string alongside the instance to detect
+ * infrastructure changes.
+ */
+let cached: { instance: PlaidLogger; env: string } | null = null;
 
 export const getLogger = (env: string = 'development'): PlaidLogger => {
-  if (cachedLogger) return cachedLogger;
+  // If we have a cached logger AND the environment matches, reuse it (Fast Path).
+  if (cached && cached.env === env) {
+    return cached.instance;
+  }
 
-  cachedLogger = new PlaidLogger(env);
-  return cachedLogger;
+  // If the env changed mid-lifecycle (or first run), create a fresh logger.
+  // This ensures the minLevel is always correct for the current state.
+  const instance = new PlaidLogger(env);
+  cached = { instance, env };
+
+  return instance;
 };

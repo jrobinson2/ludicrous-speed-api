@@ -20,7 +20,7 @@ export class AppError extends Error {
   }
 }
 
-// --- DOMAIN ERRORS (Your Logic) ---
+// --- DOMAIN ERRORS ---
 
 export class BadRequestError extends AppError {
   constructor(message = 'Bad Request', options: ErrorOptions = {}) {
@@ -70,25 +70,11 @@ export class InternalServerError extends AppError {
   }
 }
 
-// --- INFRASTRUCTURE ERRORS (External Services) ---
+// --- INFRASTRUCTURE ERRORS ---
 
 export class BadGatewayError extends AppError {
   constructor(message = 'Bad Gateway', options: ErrorOptions = {}) {
     super(message, 502, options.code ?? 'BAD_GATEWAY', options.meta);
-  }
-}
-
-export class DatabaseAlreadyInitializedError extends AppError {
-  constructor(
-    message = 'Database already initialized with a different DATABASE_URL',
-    options: ErrorOptions = {}
-  ) {
-    super(
-      message,
-      500,
-      options.code ?? 'DATABASE_ALREADY_INITIALIZED',
-      options.meta
-    );
   }
 }
 

@@ -14,26 +14,19 @@ export const shield: ErrorHandler<{
   const isDev = c.get('isDev') ?? false;
 
   // 1. Structured Logging
-  // We log the error with its full context before transforming it for the client
-  logger?.error(
-    {
-      path: c.req.path,
-      method: c.req.method,
-      err:
-        err instanceof Error
-          ? {
-              name: err.name,
-              message: err.message,
-              stack: isDev ? err.stack : undefined,
-              // Capture meta in logs if it exists
-              ...(err instanceof AppError
-                ? { meta: err.meta, code: err.code }
-                : {})
-            }
-          : err
-    },
-    '🛡️ SHIELD: Impact Detected (Error Caught)'
-  );
+  // We pass the raw error directly. PlaidLogger's high-speed loop
+  // will handle the message, stack, and serialization for us.
+  logger?.error('🛡️ SHIELD: Impact Detected (Error Caught)', {
+    path: c.req.path,
+    method: c.req.method,
+    err,
+    // If it's a custom AppError, we explicitly pull out the code and meta
+    // to ensure they are top-level keys in our JSON log.
+    ...(err instanceof AppError && {
+      code: err.code,
+      meta: err.meta
+    })
+  });
 
   // 2. Handle Zod Validation Errors
   if (err instanceof ZodError) {
