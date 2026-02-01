@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import type { Database } from '../db/engine.js';
+import type { Database } from '../db/reactor.js';
 import { users } from '../db/schema.js';
 import { api } from '../lib/api.js';
 import { NotFoundError } from '../lib/errors.js';

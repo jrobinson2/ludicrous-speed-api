@@ -58,6 +58,12 @@ export class ConflictError extends AppError {
   }
 }
 
+export class PayloadTooLargeError extends AppError {
+  constructor(message = 'Request body too large', options: ErrorOptions = {}) {
+    super(message, 413, options.code ?? 'PAYLOAD_TOO_LARGE', options.meta);
+  }
+}
+
 export class RateLimitError extends AppError {
   constructor(message = 'Too many requests', options: ErrorOptions = {}) {
     super(message, 429, options.code ?? 'RATE_LIMIT_EXCEEDED', options.meta);
