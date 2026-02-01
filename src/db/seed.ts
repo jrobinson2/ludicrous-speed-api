@@ -1,6 +1,6 @@
 import { seed } from 'drizzle-seed';
 import { getDb } from './reactor.js';
-import * as schema from './schema/index.js';
+import { schema } from './schema/index.js';
 
 async function run() {
   const url = process.env.DATABASE_URL;
@@ -42,18 +42,9 @@ async function run() {
     user: {
       count: 3,
       columns: {
-        id: f.valuesFromArray({
-          values: ['user-1', 'user-2', 'user-3'],
-          isUnique: true
-        }),
-        name: f.valuesFromArray({
-          values: ['Test Pilot', 'Beta Tester', 'Gamma Ray']
-        }),
-        email: f.valuesFromArray({
-          values: ['test@example.com', 'beta@v.ai', 'gamma@v.ai'],
-          isUnique: true
-        }),
-        // In 0.3.1, for a constant boolean, use .default()
+        id: f.uuid(),
+        name: f.fullName(),
+        email: f.email(),
         emailVerified: f.default({ defaultValue: true })
       }
     },
