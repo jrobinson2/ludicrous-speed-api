@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-export const neon = {
-  databaseUrl: () =>
+export const database = {
+  neonUrl: () =>
     z
       .url({
         message: 'DATABASE_URL must be a valid URL'

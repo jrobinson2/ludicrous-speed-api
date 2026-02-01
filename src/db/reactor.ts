@@ -2,7 +2,7 @@ import { neon, Pool } from '@neondatabase/serverless';
 import { drizzle as http } from 'drizzle-orm/neon-http';
 import { drizzle as server } from 'drizzle-orm/neon-serverless';
 import { isRuntime } from '../lib/runtime.js';
-import * as schema from './schema.js';
+import { schema } from './schema/index.js';
 
 /**
  * Persists in the Isolate/Process memory.
@@ -35,11 +35,11 @@ export const getDb = (url: string): Database => {
   if (!supportsTcp) {
     // Edge / Workers / Vercel Edge → HTTP
     const client = neon(url);
-    db = http(client, { schema });
+    db = http({ client, schema });
   } else {
     // Bun / Node → TCP pool
     const pool = new Pool({ connectionString: url });
-    db = server(pool, { schema });
+    db = server({ client: pool, schema });
   }
 
   return db;

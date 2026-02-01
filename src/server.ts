@@ -1,5 +1,5 @@
 import app from './app.js';
-import { getDb } from './db/engine.js';
+import { getDb } from './db/reactor.js';
 import { requireEnv } from './lib/env.js';
 import { closeWithGrace } from './lib/grace.js';
 import { getLogger } from './lib/logger.js';

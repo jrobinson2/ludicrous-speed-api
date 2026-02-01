@@ -46,7 +46,7 @@ Ludicrous Speed is built on **“Separation of Concerns at Warp Velocity.”**
 
 * **The Engine (Runtime):** **Bun / Node / Edge** adapts plumbing automatically.
 * **The Navigator (Framework):** **Hono** provides a lightweight, web-standard router.
-* **The Fuel Tank (Database):** **Neon** switches between HTTP and TCP pooling dynamically.
+* **The Reactor (Database):** **Neon** switches between HTTP and TCP pooling dynamically.
 * **The Hull (ORM):** **Drizzle** ensures type-safe SQL with zero runtime bloat.
 * **The Shields (Validation):** **Zod** handles end-to-end safety for Envs and APIs.
 
@@ -86,7 +86,7 @@ src/
 The system detects if the runtime supports TCP (Bun/Node) or requires HTTP (Edge) and initializes the optimal Drizzle driver automatically.
 
 <details>
-<summary><b>View src/db/engine.ts</b></summary>
+<summary><b>View src/db/reactor.ts</b></summary>
 
 ```ts
 import { neon, Pool } from '@neondatabase/serverless';
@@ -98,9 +98,9 @@ export const getDb = (url: string) => {
   const supportsTcp = isRuntime.Bun || isRuntime.Node;
 
   if (!supportsTcp) {
-    return http(neon(url)); // Edge Strategy
+    return http({ client, schema }); // Edge Strategy
   } else {
-    return server(new Pool({ connectionString: url })); // Server Strategy
+    return server({ client: pool, schema }); // Server Strategy
   }
 };
 
@@ -172,7 +172,33 @@ mise --version
 
 ---
 
-### 2. Install Tooling Versions
+### 2. Enable Automatic Tool Activation
+
+To make **mise** automatically activate the correct tool versions whenever you `cd` into the project:
+
+```bash
+# macOS / Linux (Zsh)
+echo 'eval "$(mise activate zsh)"' >> ~/.zshrc
+source ~/.zshrc
+
+# macOS / Linux (Bash)
+echo 'eval "$(mise activate bash)"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+```powershell
+# Windows PowerShell
+# Add this line to your PowerShell profile (run `$PROFILE` to see its path)
+iex "& { $(mise activate powershell) }"
+```
+
+> **Notes:**
+>
+> * On Windows, if you’re using **WSL**, use the Bash/Zsh instructions above.
+
+---
+
+### 3. Install Tooling Versions
 
 Clone the repo, then from the project root:
 
@@ -185,7 +211,7 @@ mise use
 
 ---
 
-### 3. Install Dependencies
+### 4. Install Dependencies
 
 Once Bun is installed by `mise`, install dependencies:
 
@@ -195,7 +221,7 @@ bun install
 
 ---
 
-### 4. Configure Environment Variables
+### 5. Configure Environment Variables
 
 Create your local environment file from the example:
 
@@ -207,7 +233,7 @@ Update the values in `.env` as needed (database URL, secrets, etc.).
 
 ---
 
-### 5. Run the Dev Server
+### 6. Run the Dev Server
 
 ```bash
 bun run dev

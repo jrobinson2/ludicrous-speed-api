@@ -1,7 +1,7 @@
 import { env } from 'hono/adapter';
 import { createMiddleware } from 'hono/factory';
 import { z } from 'zod';
-import { getDb } from '../db/engine.js';
+import { getDb } from '../db/reactor.js';
 import { type Bindings, envSchema } from '../lib/env.js';
 import { getLogger } from '../lib/logger.js';
 
