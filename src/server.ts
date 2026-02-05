@@ -1,13 +1,15 @@
 import app from './app.js';
 import { getDb } from './db/reactor.js';
-import { requireEnv } from './lib/env.js';
+import { envSchema } from './lib/env.js';
 import { closeWithGrace } from './lib/grace.js';
 import { getLogger } from './lib/logger.js';
 import { isRuntime } from './lib/runtime.js';
 
-const logger = getLogger(process.env.NODE_ENV || 'development');
+const env = envSchema.parse(process.env);
 
-const PORT = process.env.PORT || 3000;
+const logger = getLogger(env.NODE_ENV);
+
+const PORT = env.PORT;
 
 const server = Bun.serve({
   fetch: app.fetch,
@@ -33,17 +35,15 @@ Endpoint: http://localhost:${PORT}
   );
 }
 
-// Reuse the TCP detection from engine.ts
 const supportsTcp = isRuntime.Bun || isRuntime.Node;
 
-// Manage server lifecycle and process signals
 closeWithGrace(logger, async () => {
   server.stop(false);
   logger.info('Airlock sealed. Draining remaining connections...');
 
   // Only try to close DB pool if running in TCP environment
   if (supportsTcp) {
-    const db = getDb(requireEnv('DATABASE_URL'));
+    const db = getDb(env.DATABASE_URL);
 
     if ('end' in db && typeof db.end === 'function') {
       await db.end();

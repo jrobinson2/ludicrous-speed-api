@@ -39,7 +39,7 @@ export const configMiddleware = createMiddleware(async (c, next) => {
   // Inject into Hono Context for use in routes/services
   c.set('db', db);
   c.set('logger', requestLogger);
-  c.set('isDev', NODE_ENV === 'development');
+  c.set('config', result.data);
 
   c.res.headers.set('x-request-id', reqId);
 

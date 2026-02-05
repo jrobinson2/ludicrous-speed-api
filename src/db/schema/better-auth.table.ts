@@ -9,7 +9,7 @@
  * ⚠️ AUTO-GENERATED NOTICE
  * These tables were generated using:
  *
- *   bun x @better-auth/cli generate --output ./src/db/schema/better-auth.table.ts
+ *   bun x @better-auth/cli generate --config ./src/lib/auth.config.ts --output ./src/db/schema/better-auth.table.ts
  *
  * This command reads your `auth` config (plugins, experimental options)
  * and produces the table definitions compatible with Drizzle ORM.
@@ -35,10 +35,16 @@
  */
 
 import { boolean, index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import {
+  createInsertSchema,
+  createSelectSchema,
+  createUpdateSchema
+} from 'drizzle-zod';
+import { z } from 'zod';
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
-  name: text('name').notNull(),
+  name: text('name'),
   email: text('email').notNull().unique(),
   emailVerified: boolean('email_verified').default(false).notNull(),
   image: text('image'),
@@ -107,3 +113,30 @@ export const verification = pgTable(
   },
   (table) => [index('verification_identifier_idx').on(table.identifier)]
 );
+
+const userConfig = {
+  name: z.string().min(2, 'Name is too short'),
+  email: z.email('Please provide a valid email address'),
+  image: z.url('Invalid image URL')
+};
+
+// --- ZOD SCHEMAS ---
+export const insertUserSchema = createInsertSchema(user, {
+  name: () => userConfig.name.optional().nullable(),
+  email: () => userConfig.email,
+  image: () => userConfig.image.optional().nullable()
+});
+
+export const selectUserSchema = createSelectSchema(user);
+
+export const updateUserSchema = createUpdateSchema(user, {
+  name: () => userConfig.name.nullable(),
+  image: () => userConfig.image.nullable()
+}).pick({
+  name: true,
+  image: true
+});
+
+// --- TYPE EXPORTS ---
+export type User = typeof user.$inferSelect;
+export type NewUser = typeof user.$inferInsert;
