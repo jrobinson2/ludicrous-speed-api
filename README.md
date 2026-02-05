@@ -195,19 +195,20 @@ iex "& { $(mise activate powershell) }"
 > **Notes:**
 >
 > * On Windows, if you’re using **WSL**, use the Bash/Zsh instructions above.
+> * Automatic activation ensures the correct versions of Bun, Node, and other tools are loaded whenever you enter the project directory.
 
 ---
 
 ### 3. Install Tooling Versions
 
-Clone the repo, then from the project root:
+Clone the repo, then from the **root of the project** (where `mise.toml` is located), run the command below:
 
 ```bash
 cd ludicrous-speed
 mise use
 ```
 
-> `mise use` installs **and activates** the exact tool versions required by this project (including Bun).
+> `mise use` reads the `mise.toml` in the current directory, installs any missing tools required by this project (like Bun), and activates them for your current shell session.
 
 ---
 
@@ -223,13 +224,18 @@ bun install
 
 ### 5. Configure Environment Variables
 
-Create your local environment file from the example:
+From the root of the project, run the command below:
 
 ```bash
 cp .env.example .env
 ```
 
-Update the values in `.env` as needed (database URL, secrets, etc.).
+Then open `.env.example` and follow the inline comments to configure:
+
+* Your Neon database connection string
+* Better Auth secrets and application URLs
+
+Finally, update the copied `.env` file with your **real values**.
 
 ---
 

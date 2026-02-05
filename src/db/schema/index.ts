@@ -1,11 +1,16 @@
 import { defineRelations } from 'drizzle-orm';
-import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
 
 import { account, session, user, verification } from './better-auth.table.js';
 import { entries } from './entries.table.js';
 import { habitTags } from './habit-tags.table.js';
 import { habits } from './habits.table.js';
 import { tags } from './tags.table.js';
+
+export * from './better-auth.table.js';
+export * from './entries.table.js';
+export * from './habit-tags.table.js';
+export * from './habits.table.js';
+export * from './tags.table.js';
 
 // RELATIONS (V2)
 export const relations = defineRelations(
@@ -65,35 +70,3 @@ export const schema = {
   habitTags,
   relations
 };
-
-// INDIVIDUAL TABLE EXPORTS (For direct use if needed)
-export {
-  user,
-  session,
-  account,
-  verification,
-  habits,
-  entries,
-  tags,
-  habitTags
-};
-
-// --- ZOD SCHEMAS ---
-export const insertHabitSchema = createInsertSchema(habits);
-export const selectHabitSchema = createSelectSchema(habits);
-export const insertEntrySchema = createInsertSchema(entries);
-export const selectEntrySchema = createSelectSchema(entries);
-export const insertTagSchema = createInsertSchema(tags);
-export const selectTagSchema = createSelectSchema(tags);
-
-// --- TYPE EXPORTS ---
-export type User = typeof user.$inferSelect;
-export type NewUser = typeof user.$inferInsert;
-export type Habit = typeof habits.$inferSelect;
-export type NewHabit = typeof habits.$inferInsert;
-export type Entry = typeof entries.$inferSelect;
-export type NewEntry = typeof entries.$inferInsert;
-export type Tag = typeof tags.$inferSelect;
-export type NewTag = typeof tags.$inferInsert;
-export type HabitTag = typeof habitTags.$inferSelect;
-export type NewHabitTag = typeof habitTags.$inferInsert;

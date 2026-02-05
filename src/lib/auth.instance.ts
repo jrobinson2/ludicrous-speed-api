@@ -5,49 +5,31 @@ import type { Database } from '../db/reactor.js';
 import { schema } from '../db/schema/index.js';
 import type { Bindings } from './env.js';
 
-type AuthInstance = ReturnType<typeof betterAuth>;
-
-/**
- * Internal state to track the singleton instance and
- * detect if the execution context or config has changed.
- */
-let authInstance: AuthInstance | null = null;
-let lastDb: Database | null = null;
-let lastUrl: string | null = null;
-let lastSecret: string | null = null;
-
-/**
- * 1️⃣ STATIC CONFIG
- */
 export const authConfig = {
   experimental: { joins: true },
+  advanced: {
+    cookiePrefix: 'ludicrous'
+  },
   plugins: [
     magicLink({
       sendMagicLink: async ({ email, url }) => {
-        console.log(`🚀 LUDICROUS LOGIN [${email}]: ${url}`);
+        console.log(`\n🚀 LUDICROUS LOGIN [${email}]\n🔗 LINK: ${url}\n`);
       }
     })
   ]
 } satisfies Parameters<typeof betterAuth>[0];
 
-/**
- * 2️⃣ CLI AUTH INSTANCE
- * Uses Drizzle adapter WITHOUT a real DB
- */
-export const auth = betterAuth({
-  ...authConfig,
-  database: drizzleAdapter({} as Database, {
-    provider: 'pg',
-    schema
-  })
-});
+type AuthInstance = ReturnType<typeof betterAuth<typeof authConfig>>;
 
-/**
- * 3️⃣ RUNTIME AUTH
- */
+let authInstance: AuthInstance | null = null;
+let lastDb: Database | null = null;
+let lastUrl: string | null = null;
+let lastSecret: string | null = null;
+
 export const getAuth = (db: Database, env: Bindings): AuthInstance => {
-  const currentUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
-  const currentSecret = env.BETTER_AUTH_SECRET || 'dev_secret_123';
+  const currentUrl = env.BETTER_AUTH_URL || 'http://localhost:3007';
+  const currentSecret = env.BETTER_AUTH_SECRET;
+  const isProd = env.NODE_ENV === 'production';
 
   const isStale =
     !authInstance ||
@@ -67,8 +49,12 @@ export const getAuth = (db: Database, env: Bindings): AuthInstance => {
         schema
       }),
       baseURL: currentUrl,
-      secret: currentSecret
-    });
+      secret: currentSecret,
+      advanced: {
+        ...authConfig.advanced,
+        useSecureCookies: isProd
+      }
+    }) as AuthInstance;
   }
 
   if (!authInstance) {

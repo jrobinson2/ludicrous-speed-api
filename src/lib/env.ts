@@ -1,11 +1,11 @@
+import type { betterAuth } from 'better-auth';
 import { z } from 'zod';
 import type { Database } from '../db/reactor.js';
-import type { getLogger } from './logger.js';
-import { isRuntime } from './runtime.js';
-import { database } from './zod-schemas.js';
+import type { PlaidLogger } from './logger.js';
+import { database } from './validators.js';
 
 export const envSchema = z.object({
-  PORT: z.coerce.number().default(3000),
+  PORT: z.coerce.number().default(3007),
   NODE_ENV: z
     .enum(['development', 'production', 'test'])
     .default('development'),
@@ -16,23 +16,14 @@ export const envSchema = z.object({
 
 export type Bindings = z.infer<typeof envSchema>;
 
+type Auth = ReturnType<typeof betterAuth>;
+export type User = Auth['$Infer']['Session']['user'];
+export type Session = Auth['$Infer']['Session']['session'];
+
 export type Variables = {
-  logger: ReturnType<typeof getLogger>;
+  logger: PlaidLogger;
   db: Database;
-  isDev: boolean;
+  config: Bindings;
+  user: User | null;
+  session: Session | null;
 };
-
-/**
- * Runtime helper to require environment variables in Node/Bun
- */
-export function requireEnv(key: string): string {
-  if (isRuntime.Node || isRuntime.Bun) {
-    const value = process.env[key];
-    if (!value) throw new Error(`Environment variable "${key}" is required`);
-    return value;
-  }
-
-  throw new Error(
-    `requireEnv("${key}") can only be used in Node/Bun environments.`
-  );
-}
