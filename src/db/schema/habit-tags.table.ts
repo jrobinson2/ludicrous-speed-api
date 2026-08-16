@@ -1,4 +1,6 @@
 import { pgTable, primaryKey, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { createInsertSchema, createSelectSchema } from 'drizzle-orm/zod';
+import type { z } from 'zod';
 import { habits } from './habits.table.js';
 import { tags } from './tags.table.js';
 
@@ -16,6 +18,12 @@ export const habitTags = pgTable(
   (t) => [primaryKey({ columns: [t.habitId, t.tagId] })]
 );
 
+export const insertHabitTagSchema = createInsertSchema(habitTags).omit({
+  createdAt: true
+});
+
+export const selectHabitTagSchema = createSelectSchema(habitTags);
+
 // --- TYPE EXPORTS ---
-export type HabitTag = typeof habitTags.$inferSelect;
-export type NewHabitTag = typeof habitTags.$inferInsert;
+export type HabitTag = z.infer<typeof selectHabitTagSchema>;
+export type NewHabitTag = z.infer<typeof insertHabitTagSchema>;

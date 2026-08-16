@@ -10,9 +10,7 @@ import { schema } from './schema/index.js';
  * - Serverful: Lives until the process restarts.
  */
 
-type HttpDb = ReturnType<typeof http<typeof schema>>;
-type ServerDb = ReturnType<typeof server<typeof schema>>;
-export type Database = HttpDb | ServerDb;
+export type Database = ReturnType<typeof http> | ReturnType<typeof server>;
 
 let db: Database | null = null;
 let initializedUrl: string | null = null;
@@ -29,16 +27,17 @@ export const getDb = (url: string): Database => {
 
   // If the URL changed (Infra rotation) or it's the first run: Initialize
   initializedUrl = url;
-
   const supportsTcp = isRuntime.Bun || isRuntime.Node;
 
   if (!supportsTcp) {
     // Edge / Workers / Vercel Edge → HTTP
     const client = neon(url);
+    // @ts-expect-error - Drizzle v1 RC custom client initialization type bug
     db = http({ client, schema });
   } else {
     // Bun / Node → TCP pool
     const pool = new Pool({ connectionString: url });
+    // @ts-expect-error - Drizzle v1 RC custom client initialization type bug
     db = server({ client: pool, schema });
   }
 

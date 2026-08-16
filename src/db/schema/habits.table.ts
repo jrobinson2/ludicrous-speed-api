@@ -11,7 +11,7 @@ import {
   createInsertSchema,
   createSelectSchema,
   createUpdateSchema
-} from 'drizzle-zod';
+} from 'drizzle-orm/zod';
 import { z } from 'zod';
 import { user } from './better-auth.table.js';
 
@@ -68,3 +68,4 @@ export const updateHabitSchema = createUpdateSchema(habits, {
 // --- TYPE EXPORTS ---
 export type Habit = z.infer<typeof selectHabitSchema>;
 export type NewHabit = z.infer<typeof insertHabitSchema>;
+export type UpdateHabit = z.infer<typeof updateHabitSchema>;

@@ -19,6 +19,7 @@ export const apiGuard = createMiddleware<{
 
   // --- Content-Type Check ---
   const contentType = c.req.header('content-type');
+
   if (!contentType?.includes(API_POLICY.CONTENT_TYPE_JSON)) {
     throw new BadRequestError(
       `Unsupported Media Type: Expected ${API_POLICY.CONTENT_TYPE_JSON}`,
@@ -31,6 +32,7 @@ export const apiGuard = createMiddleware<{
 
   // --- Content-Length Check ---
   const length = Number(c.req.header('content-length'));
+
   if (length && length > API_POLICY.MAX_JSON_SIZE) {
     throw new PayloadTooLargeError('Payload exceeds maximum allowed size', {
       meta: { limit: API_POLICY.MAX_JSON_SIZE, actual: length }

@@ -9,7 +9,7 @@
  * ⚠️ AUTO-GENERATED NOTICE
  * These tables were generated using:
  *
- *   bun x @better-auth/cli generate --config ./src/lib/auth.config.ts --output ./src/db/schema/better-auth.table.ts
+ *   bun x auth@latest generate --config ./src/lib/auth.config.ts --output ./src/db/schema/better-auth.table.ts
  *
  * This command reads your `auth` config (plugins, experimental options)
  * and produces the table definitions compatible with Drizzle ORM.
@@ -39,7 +39,7 @@ import {
   createInsertSchema,
   createSelectSchema,
   createUpdateSchema
-} from 'drizzle-zod';
+} from 'drizzle-orm/zod';
 import { z } from 'zod';
 
 export const user = pgTable('user', {
@@ -138,5 +138,6 @@ export const updateUserSchema = createUpdateSchema(user, {
 });
 
 // --- TYPE EXPORTS ---
-export type User = typeof user.$inferSelect;
-export type NewUser = typeof user.$inferInsert;
+export type User = z.infer<typeof selectUserSchema>;
+export type NewUser = z.infer<typeof insertUserSchema>;
+export type UpdateUser = z.infer<typeof updateUserSchema>;

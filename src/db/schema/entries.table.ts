@@ -10,7 +10,7 @@ import {
   createInsertSchema,
   createSelectSchema,
   createUpdateSchema
-} from 'drizzle-zod';
+} from 'drizzle-orm/zod';
 import { z } from 'zod';
 import { habits } from './habits.table.js';
 
@@ -55,3 +55,4 @@ export const updateEntrySchema = createUpdateSchema(entries, {
 // --- TYPE EXPORTS ---
 export type Entry = z.infer<typeof selectEntrySchema>;
 export type NewEntry = z.infer<typeof insertEntrySchema>;
+export type UpdateEntry = z.infer<typeof updateEntrySchema>;
