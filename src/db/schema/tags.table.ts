@@ -3,7 +3,7 @@ import {
   createInsertSchema,
   createSelectSchema,
   createUpdateSchema
-} from 'drizzle-zod';
+} from 'drizzle-orm/zod';
 import { z } from 'zod';
 
 export const tags = pgTable('tags', {
@@ -44,3 +44,4 @@ export const updateTagSchema = createUpdateSchema(tags, {
 // --- TYPE EXPORTS ---
 export type Tag = z.infer<typeof selectTagSchema>;
 export type NewTag = z.infer<typeof insertTagSchema>;
+export type UpdateTag = z.infer<typeof updateTagSchema>;
