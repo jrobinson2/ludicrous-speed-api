@@ -2,7 +2,7 @@
   "name": "ludicrous-speed-api",
   "type": "module",
   "scripts": {
-    "dev": "bun --hot src/server.ts",
+    "dev": "bun --watch src/server.ts",
     "dev:edge": "wrangler dev",
     "build": "rimraf dist && tsc",
     "build:edge": "rimraf edge && bun build ./src/app.ts --outfile=edge/index.js --target=browser --minify && echo \"\n🛸 EDGE BUNDLE READY\n------------------\nSize: $(ls -lh edge/index.js | awk '{print $5}')\nStatus: They've gone to plaid!\n\"",
