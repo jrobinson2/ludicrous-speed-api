@@ -8,9 +8,9 @@ import { PayloadTooLargeError } from './lib/errors.js';
 
 import { configMiddleware } from './middleware/config.js';
 import { apiGuard } from './middleware/metadata.guard.js';
+import { notFound } from './middleware/not-found.js';
 import { sessionMiddleware } from './middleware/session.js';
 import { shield } from './middleware/shield.js';
-
 import authRoutes from './routes/auth.routes.js';
 import habitRoutes from './routes/habit.routes.js';
 import userRoutes from './routes/user.routes.js';
@@ -41,6 +41,7 @@ app.route('/api/auth', authRoutes);
 app.route('/api/users', userRoutes);
 app.route('/api/habits', habitRoutes);
 
+app.notFound(notFound);
 app.onError(shield);
 
 export default app;

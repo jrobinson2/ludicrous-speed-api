@@ -1,7 +1,7 @@
+import closeWithGrace from 'close-with-grace';
 import app from './app.js';
 import { getDb } from './db/reactor.js';
 import { envSchema } from './lib/env.js';
-import { closeWithGrace } from './lib/grace.js';
 import { getLogger } from './lib/logger.js';
 import { isRuntime } from './lib/runtime.js';
 
@@ -29,15 +29,23 @@ Endpoint: http://localhost:${PORT}
 "What's the matter, Colonel Sandurz? Chicken?"
   `);
 } else {
-  logger.info(
-    { status: 'PLAID', runtime: Bun.version, port: PORT },
-    'Server Started - Lone Starr is in flight 🚀'
-  );
+  logger.info('Server Started - Lone Starr is in flight 🚀', {
+    status: 'PLAID',
+    runtime: Bun.version,
+    port: PORT
+  });
 }
 
 const supportsTcp = isRuntime.Bun || isRuntime.Node;
 
-closeWithGrace(logger, async () => {
+closeWithGrace({ delay: 5000 }, async ({ signal, err }) => {
+  if (err) {
+    logger.error('💥 Unhandled Crash Detected.', { err });
+  } else {
+    logger.warn('🛑 {signal} detected.', { signal: signal || 'Shutdown' });
+  }
+
+  // Stop accepting new traffic
   server.stop(false);
   logger.info('Airlock sealed. Draining remaining connections...');
 
@@ -50,4 +58,6 @@ closeWithGrace(logger, async () => {
       logger.info('TCP database pool closed gracefully.');
     }
   }
+
+  logger.info('✅ Spaceball One has come to a full stop.');
 });

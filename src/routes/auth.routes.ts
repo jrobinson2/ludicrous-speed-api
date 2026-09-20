@@ -18,7 +18,7 @@ authRoutes.post(
     const logger = c.get('logger');
     const headers = c.req.raw.headers;
 
-    logger.debug({ email }, '🔐 Requesting magic link');
+    logger.debug('🔐 Requesting magic link', { email });
 
     await AuthService.sendMagicLink(db, config, email, headers);
 

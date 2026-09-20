@@ -14,7 +14,7 @@ import { getLogger, type Logger } from './logger.js';
  */
 type LudicrousOptions<T = unknown> = FetchOptions<'json'> & {
   logger?: Logger;
-  schema?: z.Schema<T>;
+  schema?: z.ZodType<T>;
 };
 
 const $api = createFetch({
@@ -42,7 +42,7 @@ export const api = async <T = unknown>(
    */
   const log =
     providedLogger ??
-    getLogger().child({ trace: 'LOGGER_NOT_PASSED_TO_API_WRAPPER' });
+    getLogger().with({ trace: 'LOGGER_NOT_PASSED_TO_API_WRAPPER' });
 
   const data = await $api<unknown>(url, {
     ...fetchOptions,
@@ -51,14 +51,11 @@ export const api = async <T = unknown>(
       const { request, response } = context;
       const status = response?.status ?? 502;
 
-      log.error(
-        {
-          status,
-          url: request,
-          upstreamError: response?._data
-        },
-        '❌ External API Failure'
-      );
+      log.error('❌ External API Failure', {
+        status,
+        url: request,
+        upstreamError: response?._data
+      });
 
       throw new BadGatewayError(
         `Upstream Error: ${response?.statusText || status}`,
@@ -76,13 +73,10 @@ export const api = async <T = unknown>(
     onRequestError(context: FetchContext<unknown, ResponseType>) {
       const { request, error } = context;
 
-      log.error(
-        {
-          url: request,
-          err: error instanceof Error ? error.message : 'Unknown network error'
-        },
-        '📡 Network/Connection Error'
-      );
+      log.error('📡 Network/Connection Error', {
+        url: request,
+        err: error instanceof Error ? error.message : 'Unknown network error'
+      });
 
       throw new GatewayTimeoutError('Gateway Timeout or Network Failure', {
         code: 'UPSTREAM_NETWORK_ERROR',
@@ -104,14 +98,11 @@ export const api = async <T = unknown>(
         message: issue.message
       }));
 
-      log.error(
-        {
-          errors: errorDetails,
-          url,
-          receivedData: data // Helpful for debugging schema mismatches
-        },
-        '❌ API Response Schema Mismatch'
-      );
+      log.error('❌ API Response Schema Mismatch', {
+        errors: errorDetails,
+        url,
+        receivedData: data // Helpful for debugging schema mismatches
+      });
 
       throw new BadGatewayError('Upstream provided invalid data shape', {
         code: 'UPSTREAM_SCHEMA_MISMATCH',
