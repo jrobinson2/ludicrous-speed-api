@@ -6,9 +6,7 @@ import { schema } from '../db/schema/index.js';
 import type { Bindings } from './env.js';
 
 export const authConfig = {
-  experimental: {
-    joins: true as const
-  },
+  advanced: { database: { joins: true } },
   plugins: [
     magicLink({
       sendMagicLink: async ({ email, url }) => {

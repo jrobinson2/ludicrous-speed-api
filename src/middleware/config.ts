@@ -30,7 +30,7 @@ export const configMiddleware = createMiddleware(async (c, next) => {
   const rootLogger = getLogger(NODE_ENV);
 
   const reqId = (c.req.header('x-request-id') || crypto.randomUUID()) as string;
-  const requestLogger = rootLogger.child({
+  const requestLogger = rootLogger.with({
     reqId,
     method: c.req.method,
     path: c.req.path
