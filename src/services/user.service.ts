@@ -22,9 +22,8 @@ export async function getAlluser(db: Database) {
 
 // --- External API Operations ---
 
-export async function getGitHubProfile(username: string, logger: Logger) {
+export async function getGitHubProfile(username: string) {
   return await api(`https://api.github.com/user/${username}`, {
-    schema: GitHubuserchema, // Automated validation
-    logger
+    schema: GitHubuserchema // Automated validation
   });
 }

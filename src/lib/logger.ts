@@ -3,26 +3,26 @@ import {
   getConsoleSink,
   getLogger as getLogTapeLogger
 } from '@logtape/logtape';
+import type { Bindings } from './env.js';
 
 export type Logger = ReturnType<typeof getLogTapeLogger>;
 
-let isConfigured = false;
-let cached: { instance: Logger; env: string } | null = null;
+let configured = false;
 
-export const getLogger = (env: string = 'development'): Logger => {
-  if (cached && cached.env === env) {
-    return cached.instance;
-  }
-
-  if (!isConfigured) {
+/**
+ * LogTape is configured once per process/isolate, on first use.
+ * The log level is fixed by whichever call comes first.
+ */
+export const getLogger = (
+  nodeEnv: Bindings['NODE_ENV'] = 'development'
+): Logger => {
+  if (!configured) {
     configureSync({
-      sinks: {
-        console: getConsoleSink()
-      },
+      sinks: { console: getConsoleSink() },
       loggers: [
         {
           category: ['app'],
-          lowestLevel: env === 'development' ? 'debug' : 'info',
+          lowestLevel: nodeEnv === 'development' ? 'debug' : 'info',
           sinks: ['console']
         },
         {
@@ -32,12 +32,8 @@ export const getLogger = (env: string = 'development'): Logger => {
         }
       ]
     });
-    isConfigured = true;
+    configured = true;
   }
 
-  // Bind to the 'app' category defined above
-  const instance = getLogTapeLogger(['app']);
-
-  cached = { instance, env };
-  return instance;
+  return getLogTapeLogger(['app']);
 };

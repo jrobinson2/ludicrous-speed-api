@@ -1,11 +1,10 @@
 import closeWithGrace from 'close-with-grace';
 import app from './app.js';
-import { getDb } from './db/reactor.js';
-import { envSchema } from './lib/env.js';
+import { closeDb } from './db/reactor.js';
+import { getConfig } from './lib/env.js';
 import { getLogger } from './lib/logger.js';
-import { isRuntime } from './lib/runtime.js';
 
-const env = envSchema.parse(process.env);
+const env = getConfig(process.env);
 
 const logger = getLogger(env.NODE_ENV);
 
@@ -16,9 +15,7 @@ const server = Bun.serve({
   port: PORT
 });
 
-const isDev = process.env.NODE_ENV === 'development';
-
-if (isDev) {
+if (env.NODE_ENV === 'development') {
   console.log(`
 🚀 LUDICROUS SPEED: ACTIVE
 --------------------------
@@ -36,8 +33,6 @@ Endpoint: http://localhost:${PORT}
   });
 }
 
-const supportsTcp = isRuntime.Bun || isRuntime.Node;
-
 closeWithGrace({ delay: 5000 }, async ({ signal, err }) => {
   if (err) {
     logger.error('💥 Unhandled Crash Detected.', { err });
@@ -45,19 +40,17 @@ closeWithGrace({ delay: 5000 }, async ({ signal, err }) => {
     logger.warn('🛑 {signal} detected.', { signal: signal || 'Shutdown' });
   }
 
-  // Stop accepting new traffic
-  server.stop(false);
+  // Stop accepting new traffic and wait for in-flight requests to finish
   logger.info('Airlock sealed. Draining remaining connections...');
+  await server.stop();
 
-  // Only try to close DB pool if running in TCP environment
-  if (supportsTcp) {
-    const db = getDb(env.DATABASE_URL);
-
-    if ('end' in db && typeof db.end === 'function') {
-      await db.end();
-      logger.info('TCP database pool closed gracefully.');
-    }
-  }
+  // No-op (returns false) if we never built a pool
+  const closed = await closeDb();
+  logger.info(
+    closed
+      ? '🛡️ Shields down, fuel lines sealed. Database pool closed.'
+      : '🚀 Eagle 5 is flying light. No database pool to close.'
+  );
 
   logger.info('✅ Spaceball One has come to a full stop.');
 });
