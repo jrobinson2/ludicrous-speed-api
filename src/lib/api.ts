@@ -1,120 +1,73 @@
-import {
-  createFetch,
-  type FetchContext,
-  type FetchOptions,
-  type ResponseType
-} from 'ofetch';
+import { createFetch, FetchError, type FetchOptions } from 'ofetch';
 import type { z } from 'zod';
-import { BadGatewayError, GatewayTimeoutError } from './errors.js';
-import { getLogger, type Logger } from './logger.js';
+import { BadGatewayError, NotFoundError } from './errors.js';
 
-/**
- * Options for the Ludicrous Fetch wrapper.
- * Extends ofetch options with Zod schema validation and localized logging.
- */
-type LudicrousOptions<T = unknown> = FetchOptions<'json'> & {
-  logger?: Logger;
-  schema?: z.ZodType<T>;
-};
+type ApiOptions<T> = FetchOptions<'json'> & { schema?: z.ZodType<T> };
 
 const $api = createFetch({
   defaults: {
-    retry: 2,
-    retryDelay: 500,
     timeout: 5000,
+    retryDelay: 500,
     responseType: 'json'
   }
 });
 
 /**
- * High-performance Fetch wrapper designed for the Edge.
- * Features automated Zod validation, localized logging, and standardized error handling.
+ * Fetch wrapper for calling upstream APIs.
+ * - Retries and timeouts via ofetch
+ * - Optional Zod validation of the response body
+ * - Failures become AppErrors. `cause` is logged by shield, never sent to the client.
+ *
+ * Error mapping:
+ * - Upstream 404          -> NotFoundError (404)
+ * - Other 4xx/5xx         -> BadGatewayError (502), meta.upstreamStatus
+ * - Timeout / network     -> BadGatewayError (502)
+ * - Schema mismatch       -> BadGatewayError (502)
  */
 export const api = async <T = unknown>(
   url: string,
-  options: LudicrousOptions<T> = {}
+  { schema, ...options }: ApiOptions<T> = {}
 ): Promise<T> => {
-  const { logger: providedLogger, schema, ...fetchOptions } = options;
+  let data: unknown;
 
-  /**
-   * Use the provided logger (likely a child logger with a reqId),
-   * or fall back to the global cached logger.
-   */
-  const log =
-    providedLogger ??
-    getLogger().with({ trace: 'LOGGER_NOT_PASSED_TO_API_WRAPPER' });
+  try {
+    data = await $api<unknown>(url, options);
+  } catch (err) {
+    if (!(err instanceof FetchError)) throw err;
 
-  const data = await $api<unknown>(url, {
-    ...fetchOptions,
+    // Upstream answered with a 4xx/5xx (after retries)
+    if (err.response) {
+      const status = err.response.status;
 
-    onResponseError(context: FetchContext<unknown, ResponseType>) {
-      const { request, response } = context;
-      const status = response?.status ?? 502;
+      // Upstream said "not found": a valid answer, not a gateway failure
+      if (status === 404) {
+        throw new NotFoundError('Resource not found', { cause: err });
+      }
 
-      log.error('❌ External API Failure', {
-        status,
-        url: request,
-        upstreamError: response?._data
-      });
-
-      throw new BadGatewayError(
-        `Upstream Error: ${response?.statusText || status}`,
-        {
-          code: 'UPSTREAM_RESPONSE_ERROR',
-          meta: {
-            status,
-            upstream_data: response?._data,
-            url: request
-          }
-        }
-      );
-    },
-
-    onRequestError(context: FetchContext<unknown, ResponseType>) {
-      const { request, error } = context;
-
-      log.error('📡 Network/Connection Error', {
-        url: request,
-        err: error instanceof Error ? error.message : 'Unknown network error'
-      });
-
-      throw new GatewayTimeoutError('Gateway Timeout or Network Failure', {
-        code: 'UPSTREAM_NETWORK_ERROR',
-        meta: {
-          url: request,
-          original_error: error instanceof Error ? error.message : 'Unknown'
-        }
-      });
-    }
-  });
-
-  // --- 🛰️ Zod Validation Step ---
-  if (schema) {
-    const result = schema.safeParse(data);
-
-    if (!result.success) {
-      const errorDetails = result.error.issues.map((issue) => ({
-        path: issue.path.join('.'),
-        message: issue.message
-      }));
-
-      log.error('❌ API Response Schema Mismatch', {
-        errors: errorDetails,
-        url,
-        receivedData: data // Helpful for debugging schema mismatches
-      });
-
-      throw new BadGatewayError('Upstream provided invalid data shape', {
-        code: 'UPSTREAM_SCHEMA_MISMATCH',
-        meta: {
-          details: errorDetails,
-          url
-        }
+      throw new BadGatewayError(`Upstream Error: ${err.statusText || status}`, {
+        code: 'UPSTREAM_RESPONSE_ERROR',
+        meta: { upstreamStatus: status },
+        cause: err
       });
     }
 
-    return result.data;
+    // No response: timeout, DNS, connection reset
+    throw new BadGatewayError('Upstream unreachable', {
+      code: 'UPSTREAM_UNAVAILABLE',
+      cause: err
+    });
   }
 
-  return data as T;
+  if (!schema) return data as T;
+
+  const result = schema.safeParse(data);
+
+  if (!result.success) {
+    throw new BadGatewayError('Upstream provided invalid data shape', {
+      code: 'UPSTREAM_SCHEMA_MISMATCH',
+      cause: result.error // issues include paths and messages
+    });
+  }
+
+  return result.data;
 };

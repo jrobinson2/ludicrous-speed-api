@@ -25,13 +25,15 @@ No request ever assumes warm state. If a single request executes in total isolat
 * No business logic depends on global state.
 * Initialization is **idempotent**.
 
-### Opportunistic Process Reuse (The Adaptive Singleton)
+### Opportunistic Process Reuse (Lazy Singletons)
 
-The system **detects and benefits from reuse when available**. Expensive factories (DB clients, loggers) use an **Adaptive Singleton** pattern—memoized at module scope for performance, but self-validating to ensure they never serve stale configuration if environment variables rotate mid-lifecycle.
+The system **detects and benefits from reuse when available**, without paying for it on every request. Expensive factories (DB clients, loggers, validated env) are **lazy singletons**—built on first use, then memoized at module scope for the rest of the process (or isolate) lifetime.
 
-### Capability-Based Execution (The Lazy-Initialized Factory)
+* Nothing is initialized until the first request needs it.
+* Once built, the same instance is reused for every call after — the input (env vars, DB URL) is **not** re-checked or re-validated on later calls. Config doesn't rotate mid-process, so re-validating on every request would just be wasted work.
+* Tests that need a clean slate reset the module explicitly (`resetConfigCache`, `closeDb`) rather than relying on the factory to detect a change.
 
-Rather than targeting a single runtime, Ludicrous Speed uses **Lazy-Initialized Singletons** that adapt to the environment on the first request:
+Within that, the DB layer also adapts its **strategy** to the runtime on that first call:
 
 | Runtime | DB Strategy | Connection Model | Notes |
 | --- | --- | --- | --- |
@@ -83,7 +85,7 @@ src/
 
 ### 1. The Adaptive Engine (The Magic)
 
-The system detects if the runtime supports TCP (Bun/Node) or requires HTTP (Edge) and initializes the optimal Drizzle driver automatically.
+The system detects if the runtime supports TCP (Bun/Node) or requires HTTP (Edge) and initializes the optimal Drizzle driver automatically — once, on the first call, then reuses it for the life of the process/isolate.
 
 <details>
 <summary><b>View src/db/reactor.ts</b></summary>
@@ -92,16 +94,29 @@ The system detects if the runtime supports TCP (Bun/Node) or requires HTTP (Edge
 import { neon, Pool } from '@neondatabase/serverless';
 import { drizzle as http } from 'drizzle-orm/neon-http';
 import { drizzle as server } from 'drizzle-orm/neon-serverless';
-import { isRuntime } from '../lib/runtime.js';
+import { getRuntimeKey } from 'hono/adapter';
+import { schema } from './schema/index.js';
 
-export const getDb = (url: string) => {
-  const supportsTcp = isRuntime.Bun || isRuntime.Node;
+let db: Database | null = null;
+let pool: Pool | null = null; // only set when the pooled driver is in use
 
-  if (!supportsTcp) {
-    return http({ client, schema }); // Edge Strategy
+const usesPool = () => {
+  const runtime = getRuntimeKey();
+  return runtime === 'bun' || runtime === 'node';
+};
+
+export const getDb = (url: string): Database => {
+  if (db) return db;
+
+  if (usesPool()) {
+    const p = new Pool({ connectionString: url });
+    db = server({ client: p, schema }); // Server Strategy
+    pool = p;
   } else {
-    return server({ client: pool, schema }); // Server Strategy
+    db = http({ client: neon(url), schema }); // Edge Strategy
   }
+
+  return db;
 };
 
 ```
@@ -113,19 +128,32 @@ export const getDb = (url: string) => {
 The `configMiddleware` validates environment variables once and injects the `db` and a child `logger` (with a unique Request ID) into the Hono context.
 
 <details>
-<summary><b>View src/routes/user.routes.ts</b></summary>
+<summary><b>View src/middleware/config.ts</b></summary>
 
 ```ts
-const userRoutes = new Hono<{ Variables: Variables }>();
+import { env } from 'hono/adapter';
+import { createMiddleware } from 'hono/factory';
+import { getDb } from '../db/reactor.js';
+import { type Bindings, getConfig, type Variables } from '../lib/env.js';
+import { getLogger } from '../lib/logger.js';
 
-userRoutes.get('/', async (c) => {
-  const logger = c.get('logger');
-  const db = c.get('db');
+export const configMiddleware = createMiddleware<{
+  Bindings: Bindings;
+  Variables: Variables;
+}>(async (c, next) => {
+  const config = getConfig(env<Bindings>(c));
 
-  logger.info('🛰️ Fetching users at Ludicrous Speed');
-  
-  const data = await db.select().from(users);
-  return c.json(data);
+  const logger = getLogger(config.NODE_ENV).with({
+    reqId: c.get('requestId'),
+    method: c.req.method,
+    path: c.req.path
+  });
+
+  c.set('config', config);
+  c.set('db', getDb(config.DATABASE_URL));
+  c.set('logger', logger);
+
+  await next();
 });
 
 ```

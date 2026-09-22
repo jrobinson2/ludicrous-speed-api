@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
+import { requestId } from 'hono/request-id';
 import { secureHeaders } from 'hono/secure-headers';
 import { API_POLICY } from './lib/constraints.js';
 import type { Bindings, Variables } from './lib/env.js';
@@ -20,6 +21,7 @@ const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 app.use(secureHeaders());
 app.use(cors());
 
+app.use(requestId({ limitLength: 64 }));
 app.use(configMiddleware);
 
 app.on(

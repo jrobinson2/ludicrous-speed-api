@@ -1,45 +1,46 @@
 import { neon, Pool } from '@neondatabase/serverless';
 import { drizzle as http } from 'drizzle-orm/neon-http';
 import { drizzle as server } from 'drizzle-orm/neon-serverless';
-import { isRuntime } from '../lib/runtime.js';
+import { getRuntimeKey } from 'hono/adapter';
 import { schema } from './schema/index.js';
-
-/**
- * Persists in the Isolate/Process memory.
- * - Serverless: Lives as long as the "Warm Start".
- * - Serverful: Lives until the process restarts.
- */
 
 export type Database = ReturnType<typeof http> | ReturnType<typeof server>;
 
 let db: Database | null = null;
-let initializedUrl: string | null = null;
+let pool: Pool | null = null; // only set when the pooled driver is in use
+
+// Pool only where connections outlive a request; everything else uses HTTP.
+const usesPool = () => {
+  const runtime = getRuntimeKey();
+  return runtime === 'bun' || runtime === 'node';
+};
 
 /**
- * Gets or initializes the database instance.
- * Handles the "Stale Isolate" edge case by re-initializing if the URL changes.
+ * Lazy singleton. Built on first use, reused for the life of the
+ * process (or isolate). The URL is only read on the first call.
  */
 export const getDb = (url: string): Database => {
-  // If we have an existing instance and the URL matches, reuse it
-  if (db && initializedUrl === url) {
-    return db;
-  }
+  if (db) return db;
 
-  // If the URL changed (Infra rotation) or it's the first run: Initialize
-  initializedUrl = url;
-  const supportsTcp = isRuntime.Bun || isRuntime.Node;
-
-  if (!supportsTcp) {
-    // Edge / Workers / Vercel Edge → HTTP
-    const client = neon(url);
+  if (usesPool()) {
+    const p = new Pool({ connectionString: url });
     // @ts-expect-error - Drizzle v1 RC custom client initialization type bug
-    db = http({ client, schema });
+    db = server({ client: p, schema });
+    pool = p; // assigned after drizzle succeeds, so a throw can't strand a pool
   } else {
-    // Bun / Node → TCP pool
-    const pool = new Pool({ connectionString: url });
     // @ts-expect-error - Drizzle v1 RC custom client initialization type bug
-    db = server({ client: pool, schema });
+    db = http({ client: neon(url), schema });
   }
 
   return db;
+};
+
+/** Ends the pool if one was built. Also resets state for tests. */
+export const closeDb = async () => {
+  const p = pool;
+  pool = null;
+  db = null;
+  if (!p) return false;
+  await p.end();
+  return true;
 };

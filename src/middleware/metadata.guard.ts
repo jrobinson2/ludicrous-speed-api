@@ -7,20 +7,11 @@ export const apiGuard = createMiddleware<{
   Bindings: Bindings;
   Variables: Variables;
 }>(async (c, next) => {
-  const { method } = c.req;
-
-  const isMutation = (API_POLICY.ALLOWED_METHODS as readonly string[]).includes(
-    method
-  );
-
-  if (!isMutation) {
-    return await next();
-  }
-
   // --- Content-Type Check ---
   const contentType = c.req.header('content-type');
+  const mediaType = contentType?.split(';')[0]?.trim().toLowerCase();
 
-  if (!contentType?.includes(API_POLICY.CONTENT_TYPE_JSON)) {
+  if (mediaType !== API_POLICY.CONTENT_TYPE_JSON) {
     throw new BadRequestError(
       `Unsupported Media Type: Expected ${API_POLICY.CONTENT_TYPE_JSON}`,
       {
